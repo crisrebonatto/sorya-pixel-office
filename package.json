@@ -1,0 +1,88 @@
+{
+  "name": "agent-office",
+  "displayName": "Agent Office",
+  "description": "Cada agente de IA trabalhando na própria mesa, em pixel art, com quadro de tarefas em tempo real.",
+  "version": "0.1.0",
+  "publisher": "sorya",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "agentOffice",
+          "title": "Agent Office",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "agentOffice": [
+        {
+          "type": "webview",
+          "id": "agentOffice.office",
+          "name": "Escritório"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "agentOffice.delegateToCodex",
+        "title": "Agent Office: Delegar tarefa ao Codex"
+      },
+      {
+        "command": "agentOffice.showStatus",
+        "title": "Agent Office: Status do servidor"
+      }
+    ],
+    "configuration": {
+      "title": "Agent Office",
+      "properties": {
+        "agentOffice.port": {
+          "type": "number",
+          "default": 4517,
+          "description": "Porta preferida do servidor local de eventos. Se ocupada, a extensão sobe na próxima livre."
+        },
+        "agentOffice.desks": {
+          "type": "number",
+          "default": 8,
+          "minimum": 4,
+          "maximum": 12,
+          "description": "Número de mesas visíveis no escritório."
+        },
+        "agentOffice.notifyOnWaiting": {
+          "type": "boolean",
+          "default": true,
+          "description": "Disparar notificação nativa quando um agente precisa de aprovação."
+        },
+        "agentOffice.codexCommand": {
+          "type": "string",
+          "default": "codex",
+          "description": "Binário do Codex CLI usado pelo adaptador de delegação."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "sprites": "node scripts/generate-sprites.js",
+    "vscode:prepublish": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.0"
+  }
+}

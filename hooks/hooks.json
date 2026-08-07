@@ -1,0 +1,255 @@
+{
+  "description": "Agent Office: telemetria visual de agentes. Hooks async — nunca bloqueiam o trabalho.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:${AGENT_OFFICE_PORT:-4517}/event",
+            "async": true,
+            "timeout": 5,
+            "headers": {
+              "Authorization": "Bearer $AGENT_OFFICE_TOKEN"
+            },
+            "allowedEnvVars": [
+              "AGENT_OFFICE_TOKEN",
+              "AGENT_OFFICE_PORT"
+            ]
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:${AGENT_OFFICE_PORT:-4517}/event",
+            "async": true,
+            "timeout": 5,
+            "headers": {
+              "Authorization": "Bearer $AGENT_OFFICE_TOKEN"
+            },
+            "allowedEnvVars": [
+              "AGENT_OFFICE_TOKEN",
+              "AGENT_OFFICE_PORT"
+            ]
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:${AGENT_OFFICE_PORT:-4517}/event",
+            "async": true,
+            "timeout": 5,
+            "headers": {
+              "Authorization": "Bearer $AGENT_OFFICE_TOKEN"
+            },
+            "allowedEnvVars": [
+              "AGENT_OFFICE_TOKEN",
+              "AGENT_OFFICE_PORT"
+            ]
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:${AGENT_OFFICE_PORT:-4517}/event",
+            "async": true,
+            "timeout": 5,
+            "headers": {
+              "Authorization": "Bearer $AGENT_OFFICE_TOKEN"
+            },
+            "allowedEnvVars": [
+              "AGENT_OFFICE_TOKEN",
+              "AGENT_OFFICE_PORT"
+            ]
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:${AGENT_OFFICE_PORT:-4517}/event",
+            "async": true,
+            "timeout": 5,
+            "headers": {
+              "Authorization": "Bearer $AGENT_OFFICE_TOKEN"
+            },
+            "allowedEnvVars": [
+              "AGENT_OFFICE_TOKEN",
+              "AGENT_OFFICE_PORT"
+            ]
+          }
+        ],
+        "matcher": "*"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:${AGENT_OFFICE_PORT:-4517}/event",
+            "async": true,
+            "timeout": 5,
+            "headers": {
+              "Authorization": "Bearer $AGENT_OFFICE_TOKEN"
+            },
+            "allowedEnvVars": [
+              "AGENT_OFFICE_TOKEN",
+              "AGENT_OFFICE_PORT"
+            ]
+          }
+        ],
+        "matcher": "*"
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:${AGENT_OFFICE_PORT:-4517}/event",
+            "async": true,
+            "timeout": 5,
+            "headers": {
+              "Authorization": "Bearer $AGENT_OFFICE_TOKEN"
+            },
+            "allowedEnvVars": [
+              "AGENT_OFFICE_TOKEN",
+              "AGENT_OFFICE_PORT"
+            ]
+          }
+        ],
+        "matcher": "*"
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:${AGENT_OFFICE_PORT:-4517}/event",
+            "async": true,
+            "timeout": 5,
+            "headers": {
+              "Authorization": "Bearer $AGENT_OFFICE_TOKEN"
+            },
+            "allowedEnvVars": [
+              "AGENT_OFFICE_TOKEN",
+              "AGENT_OFFICE_PORT"
+            ]
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:${AGENT_OFFICE_PORT:-4517}/event",
+            "async": true,
+            "timeout": 5,
+            "headers": {
+              "Authorization": "Bearer $AGENT_OFFICE_TOKEN"
+            },
+            "allowedEnvVars": [
+              "AGENT_OFFICE_TOKEN",
+              "AGENT_OFFICE_PORT"
+            ]
+          }
+        ]
+      }
+    ],
+    "TaskCreated": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:${AGENT_OFFICE_PORT:-4517}/event",
+            "async": true,
+            "timeout": 5,
+            "headers": {
+              "Authorization": "Bearer $AGENT_OFFICE_TOKEN"
+            },
+            "allowedEnvVars": [
+              "AGENT_OFFICE_TOKEN",
+              "AGENT_OFFICE_PORT"
+            ]
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:${AGENT_OFFICE_PORT:-4517}/event",
+            "async": true,
+            "timeout": 5,
+            "headers": {
+              "Authorization": "Bearer $AGENT_OFFICE_TOKEN"
+            },
+            "allowedEnvVars": [
+              "AGENT_OFFICE_TOKEN",
+              "AGENT_OFFICE_PORT"
+            ]
+          }
+        ]
+      }
+    ],
+    "TeammateIdle": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:${AGENT_OFFICE_PORT:-4517}/event",
+            "async": true,
+            "timeout": 5,
+            "headers": {
+              "Authorization": "Bearer $AGENT_OFFICE_TOKEN"
+            },
+            "allowedEnvVars": [
+              "AGENT_OFFICE_TOKEN",
+              "AGENT_OFFICE_PORT"
+            ]
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:${AGENT_OFFICE_PORT:-4517}/event",
+            "async": true,
+            "timeout": 5,
+            "headers": {
+              "Authorization": "Bearer $AGENT_OFFICE_TOKEN"
+            },
+            "allowedEnvVars": [
+              "AGENT_OFFICE_TOKEN",
+              "AGENT_OFFICE_PORT"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

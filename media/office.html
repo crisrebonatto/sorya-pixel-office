@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="{{csp}}" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="{{media}}/office.css" />
+  <title>Agent Office</title>
+</head>
+<body data-media="{{media}}">
+  <div id="app">
+    <header id="office-header">
+      <span id="office-title">AGENT OFFICE</span>
+      <span id="session-lamp" title="Sessão"></span>
+    </header>
+
+    <main id="layout">
+      <section id="office" aria-label="Escritório">
+        <div id="desks"></div>
+      </section>
+
+      <section id="board" aria-label="Quadro de tarefas">
+        <div class="board-column" data-status="pending">
+          <h2>Pendente</h2>
+          <div class="cards"></div>
+        </div>
+        <div class="board-column" data-status="running">
+          <h2>Em execução</h2>
+          <div class="cards"></div>
+        </div>
+        <div class="board-column" data-status="done">
+          <h2>Feito</h2>
+          <div class="cards"></div>
+        </div>
+        <div class="board-column" data-status="failed">
+          <h2>Falhou</h2>
+          <div class="cards"></div>
+        </div>
+      </section>
+    </main>
+
+    <footer id="detail" hidden></footer>
+  </div>
+  <script nonce="{{nonce}}" src="{{media}}/office.js"></script>
+</body>
+</html>
