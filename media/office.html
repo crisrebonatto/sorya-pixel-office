@@ -21,8 +21,13 @@
         <span class="counter accent" data-k="running" title="Tarefas em execução"><b>0</b> <span class="lbl">rodando</span></span>
         <span class="counter bad" data-k="failed" title="Tarefas que falharam"><b>0</b> <span class="lbl">falhas</span></span>
       </div>
+      <div id="scope" class="seg" role="group" aria-label="Filtro de projeto" hidden>
+        <button data-scope="all" title="Escritório inteiro: todos os projetos desta máquina">todos</button>
+        <button data-scope="local" title="Só quem trabalha no projeto aberto nesta janela">local</button>
+      </div>
       <div id="sources" title="Fontes monitoradas"></div>
       <div class="tools">
+        <button id="btn-browser" class="ghost" title="Abrir o escritório no navegador (tela cheia, segundo monitor)">↗</button>
         <button id="btn-feed" class="ghost" title="Mostrar/ocultar o feed de atividade">feed</button>
         <button id="btn-demo" class="ghost" title="Simular um time trabalhando">demo</button>
         <span class="sep"></span>

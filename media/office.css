@@ -111,6 +111,25 @@ button.on { background: var(--accent); border-color: var(--accent); color: #fff;
 .counter.accent b { color: var(--accent-hi); }
 .counter.bad.hot b { color: var(--error); }
 
+/* Filtro: escritório inteiro × projeto local */
+.seg { display: inline-flex; border: 1px solid var(--line-2); border-radius: 4px; overflow: hidden; flex: 0 1 auto; min-width: 0; }
+.seg[hidden] { display: none; }
+.seg button {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 10px;
+  padding: 0 7px;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.seg button + button { border-left: 1px solid var(--line-2); }
+.seg button.on { background: var(--accent); color: #fff; }
+.seg.off { opacity: .45; pointer-events: none; }
+
 #sources { display: flex; gap: 6px; flex-wrap: nowrap; margin-left: auto; overflow: hidden; }
 .source {
   display: inline-flex; align-items: center; gap: 5px;
@@ -432,4 +451,13 @@ button.on { background: var(--accent); border-color: var(--accent); color: #fff;
 @media (prefers-reduced-motion: reduce) {
   .card.new, #feed li.new { animation: none; }
   .counter.warn.hot { animation: none; }
+}
+
+/* Modo navegador: conexão com o editor caiu (fechado ou recarregando). */
+html.ao-offline #topbar::after {
+  content: 'editor desconectado · reconectando…';
+  font-size: 10px;
+  color: var(--warn);
+  margin-left: 8px;
+  white-space: nowrap;
 }
