@@ -9,38 +9,79 @@
 </head>
 <body data-media="{{media}}">
   <div id="app">
-    <header id="office-header">
-      <span id="office-title">AGENT OFFICE</span>
-      <span id="session-lamp" title="Sessão"></span>
+    <header id="topbar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-title">SORYA <em>DEV HUB</em></span>
+        <span id="host-chip" class="chip muted" title="IDE onde a extensão está rodando"></span>
+      </div>
+      <div id="counters" aria-live="polite">
+        <span class="counter" data-k="active" title="Agentes no escritório"><b>0</b> <span class="lbl">ativos</span></span>
+        <span class="counter warn" data-k="waiting" title="Agentes esperando você"><b>0</b> <span class="lbl">aguardando</span></span>
+        <span class="counter accent" data-k="running" title="Tarefas em execução"><b>0</b> <span class="lbl">rodando</span></span>
+        <span class="counter bad" data-k="failed" title="Tarefas que falharam"><b>0</b> <span class="lbl">falhas</span></span>
+      </div>
+      <div id="sources" title="Fontes monitoradas"></div>
+      <div class="tools">
+        <button id="btn-feed" class="ghost" title="Mostrar/ocultar o feed de atividade">feed</button>
+        <button id="btn-demo" class="ghost" title="Simular um time trabalhando">demo</button>
+        <span class="sep"></span>
+        <button id="btn-zoom-out" title="Afastar (Ctrl + roda)" aria-label="Afastar">−</button>
+        <button id="btn-zoom-fit" title="Ajustar à tela" aria-label="Ajustar">▣</button>
+        <button id="btn-zoom-in" title="Aproximar (Ctrl + roda)" aria-label="Aproximar">+</button>
+      </div>
     </header>
 
-    <main id="layout">
-      <section id="office" aria-label="Escritório">
-        <div id="desks"></div>
+    <div id="main">
+      <section id="stage" aria-label="Escritório">
+        <canvas id="office"></canvas>
+        <div id="empty" hidden>
+          <div class="empty-card">
+            <h1>Escritório vazio</h1>
+            <p>Assim que um agente trabalhar nesta máquina, ele entra pela porta e senta numa mesa. Nada a configurar: o escritório lê os registros locais de cada ferramenta.</p>
+            <ul id="empty-sources"></ul>
+            <button id="btn-demo-empty">Ver o time em ação (demo)</button>
+          </div>
+        </div>
+        <aside id="detail" hidden aria-live="polite"></aside>
       </section>
+      <aside id="feed" aria-label="Atividade">
+        <h2><span>Atividade</span><b class="live">ao vivo</b></h2>
+        <ol></ol>
+      </aside>
+    </div>
 
-      <section id="board" aria-label="Quadro de tarefas">
-        <div class="board-column" data-status="pending">
-          <h2>Pendente</h2>
-          <div class="cards"></div>
-        </div>
-        <div class="board-column" data-status="running">
-          <h2>Em execução</h2>
-          <div class="cards"></div>
-        </div>
-        <div class="board-column" data-status="done">
-          <h2>Feito</h2>
-          <div class="cards"></div>
-        </div>
-        <div class="board-column" data-status="failed">
-          <h2>Falhou</h2>
-          <div class="cards"></div>
-        </div>
-      </section>
-    </main>
+    <div id="splitter" role="separator" aria-orientation="horizontal" title="Arraste para redimensionar"></div>
 
-    <footer id="detail" hidden></footer>
+    <section id="dock">
+      <div id="board" aria-label="Quadro de tarefas">
+        <div class="column" data-status="pending">
+          <h2><span>Pendente</span><b class="count">0</b></h2>
+          <div class="cards"></div>
+        </div>
+        <div class="column" data-status="running">
+          <h2><span>Em execução</span><b class="count">0</b></h2>
+          <div class="cards"></div>
+        </div>
+        <div class="column" data-status="done">
+          <h2><span>Feito</span><b class="count">0</b></h2>
+          <div class="cards"></div>
+        </div>
+        <div class="column" data-status="failed">
+          <h2><span>Falhou</span><b class="count">0</b></h2>
+          <div class="cards"></div>
+        </div>
+      </div>
+    </section>
   </div>
+
+  <script nonce="{{nonce}}" src="{{media}}/pixel/core.js"></script>
+  <script nonce="{{nonce}}" src="{{media}}/pixel/font.js"></script>
+  <script nonce="{{nonce}}" src="{{media}}/pixel/characters.js"></script>
+  <script nonce="{{nonce}}" src="{{media}}/pixel/furniture.js"></script>
+  <script nonce="{{nonce}}" src="{{media}}/pixel/world.js"></script>
+  <script nonce="{{nonce}}" src="{{media}}/pixel/scene.js"></script>
+  <script nonce="{{nonce}}" src="{{media}}/demo.js"></script>
   <script nonce="{{nonce}}" src="{{media}}/office.js"></script>
 </body>
 </html>

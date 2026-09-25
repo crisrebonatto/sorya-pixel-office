@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>
+body{margin:0;background:#2b2f3a;color:#ddd;font:12px monospace}
+canvas{image-rendering:pixelated;display:block}
+</style></head><body>
+<canvas id="out"></canvas>
+<script src="../media/pixel/core.js"></script>
+<script src="../media/pixel/characters.js"></script>
+<script>
+(function(){
+  const { chars, px } = AO;
+  const S = Number(new URLSearchParams(location.search).get('s') || 5);
+  const poses = (new URLSearchParams(location.search).get('poses') || 'stand:down:0,stand:up:0,stand:left:0,stand:right:0,walk:down:1,walk:down:3,walk:left:1,walk:left:3,sit:down:type0,sit:up:type0,sit:down:hand0,wave:down:1,coffee:down:1,sofa:down:0').split(',');
+  const looks = [];
+  const srcs = ['claude','codex','gemini','antigravity','claude','codex','other','cursor'];
+  chars.HAIR_STYLES.forEach((hs, i) => {
+    const l = chars.lookFor('seed'+i, srcs[i % srcs.length], i % 3 === 2 ? 'subagent' : 'session', i === 3 ? 'Explore' : i === 5 ? 'Plan' : '');
+    l.hair = hs; l.key += '|' + hs;
+    l.hairColor = chars.HAIRS[i % chars.HAIRS.length];
+    l.skin = chars.SKINS[i % chars.SKINS.length];
+    looks.push(l);
+  });
+  const cw = chars.CW, ch = chars.CH;
+  const out = document.getElementById('out');
+  out.width = (poses.length * (cw + 2) + 2) * S;
+  out.height = (looks.length * (ch + 2) + 2) * S;
+  const ctx = out.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  const buf = px.canvas(poses.length * (cw + 2) + 2, looks.length * (ch + 2) + 2);
+  const b = px.ctx2d(buf);
+  b.fillStyle = '#b9854f'; b.fillRect(0,0,buf.width,buf.height);
+  for (let y = 0; y < buf.height; y += 16) { b.fillStyle = '#ad7a46'; b.fillRect(0, y, buf.width, 8); }
+  looks.forEach((l, j) => poses.forEach((p, i) => {
+    chars.draw(b, l, p, 1 + i * (cw + 2) + chars.ANCHOR_X, 1 + j * (ch + 2) + chars.ANCHOR_Y);
+  }));
+  ctx.drawImage(buf, 0, 0, buf.width * S, buf.height * S);
+  document.title = 'done';
+})();
+</script></body></html>
