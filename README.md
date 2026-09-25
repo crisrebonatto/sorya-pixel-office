@@ -119,6 +119,8 @@ Rode **`Agent Office: Abrir no navegador`** ou clique no **↗** no topo do escr
 
 Clique num agente e abra a aba **terminal**: aparecem os comandos que ele roda, a saída (testes, build) e os diffs de código, ao vivo. Começa desligado. Para ligar, use o botão na aba ou **`Agent Office: Ligar/desligar terminal ao vivo`**.
 
+![Terminal ao vivo do Rick, com o segredo do webhook oculto](docs/screenshot-terminal.png)
+
 Mostra:
 - **Comandos** com ✓/✕ e o código de saída, e as últimas 60 linhas da saída.
 - **Diffs** de cada edição (Edit, Write, apply_patch), coloridos, com +/−.
