@@ -1,51 +1,76 @@
-# Publica uma Release a cada tag de versão (vX.Y.Z):
-#   1. compila e roda os testes
-#   2. confere que a tag bate com a versão do package.json
-#   3. empacota a extensão (.vsix)
-#   4. cria a Release com a seção da versão do CHANGELOG.md + o .vsix anexado
+# Publica uma Release por versão (uma vez só):
+#   - push de tag vX.Y.Z, ou
+#   - push em main / claude/** que mude package.json, CHANGELOG.md ou este
+#     arquivo: se a tag v<versão do package.json> ainda não existe, a Release
+#     é criada (com a tag) apontando para o commit enviado.
+# Passos: testes → confere versão → empacota o .vsix → Release com a seção
+# da versão no CHANGELOG.md + o .vsix anexado.
 #
-# Para lançar: atualize "version" no package.json e a seção no CHANGELOG.md,
-# depois `git tag vX.Y.Z && git push origin vX.Y.Z`.
+# Para lançar: atualize "version" no package.json e crie a seção
+# "## [x.y.z]" no CHANGELOG.md. O push faz o resto.
 name: Release
 
 on:
   push:
     tags: ['v*']
+    branches: ['main', 'claude/**']
+    paths: ['package.json', 'CHANGELOG.md', '.github/workflows/release.yml']
 
 permissions:
   contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Versão e tag
+        id: meta
+        run: |
+          VER="$(node -p "require('./package.json').version")"
+          TAG="v$VER"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            if [ "$GITHUB_REF_NAME" != "$TAG" ]; then
+              echo "::error::tag $GITHUB_REF_NAME diferente da versão do package.json ($TAG)"
+              exit 1
+            fi
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          elif git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
+            echo "A Release $TAG já existe — nada a fazer."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - uses: actions/setup-node@v4
+        if: steps.meta.outputs.skip != 'true'
         with:
           node-version: 22
           cache: npm
 
-      - run: npm ci
-
-      - name: Testes
-        run: npm test
-
-      - name: Tag confere com o package.json
+      - name: Instalar e testar
+        if: steps.meta.outputs.skip != 'true'
         run: |
-          TAG="${GITHUB_REF_NAME#v}"
-          PKG="$(node -p "require('./package.json').version")"
-          if [ "$TAG" != "$PKG" ]; then
-            echo "::error::tag v$TAG diferente da versão do package.json ($PKG)"
-            exit 1
-          fi
+          npm ci
+          npm test
 
       - name: Empacotar .vsix
-        run: npx --yes @vscode/vsce@4 package --out "agent-office-${GITHUB_REF_NAME}.vsix"
+        if: steps.meta.outputs.skip != 'true'
+        run: npx --yes @vscode/vsce@4 package --out "agent-office-${{ steps.meta.outputs.tag }}.vsix"
 
       - name: Notas da versão (CHANGELOG.md)
+        if: steps.meta.outputs.skip != 'true'
         run: |
-          VER="${GITHUB_REF_NAME#v}"
+          VER="${{ steps.meta.outputs.version }}"
           awk -v v="$VER" '/^## \[/{ p = index($0, "[" v "]") > 0; next } p' CHANGELOG.md > notes.md
           if [ ! -s notes.md ]; then echo "Veja o CHANGELOG.md." > notes.md; fi
           cat >> notes.md <<'NOTES'
@@ -57,8 +82,11 @@ jobs:
           NOTES
 
       - uses: softprops/action-gh-release@v2
+        if: steps.meta.outputs.skip != 'true'
         with:
-          name: Agent Office ${{ github.ref_name }} — Sorya Dev Hub
+          tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Agent Office ${{ steps.meta.outputs.tag }} — Sorya Dev Hub
           body_path: notes.md
           files: agent-office-*.vsix
           make_latest: true

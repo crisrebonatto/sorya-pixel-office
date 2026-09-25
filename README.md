@@ -118,6 +118,6 @@ Arquitetura, decisões e formatos lidos: [`docs/ARCHITECTURE.md`](docs/ARCHITECT
 ### Lançar uma versão
 
 1. Atualize `version` no `package.json` e crie a seção `## [x.y.z]` no `CHANGELOG.md`.
-2. `git tag vx.y.z && git push origin vx.y.z`.
+2. Faça o push (em `main` ou num branch `claude/**`), ou envie a tag `vx.y.z`.
 
-O workflow [`release.yml`](.github/workflows/release.yml) roda os testes, empacota o `.vsix` e publica a Release no GitHub com as notas do CHANGELOG.
+O workflow [`release.yml`](.github/workflows/release.yml) roda os testes, empacota o `.vsix` e publica a Release no GitHub com as notas do CHANGELOG — uma vez por versão.
