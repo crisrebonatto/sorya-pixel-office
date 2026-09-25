@@ -1,6 +1,8 @@
 node_modules/**
 src/**
 out/**/*.map
-scripts/**
+test/**
+dev/**
 tsconfig.json
 .gitignore
+*.vsix

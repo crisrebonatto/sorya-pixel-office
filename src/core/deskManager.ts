@@ -2,11 +2,7 @@
 // fica vazia. Mesas nascendo e sumindo destruiriam a memória espacial que
 // torna o painel legível de relance.
 
-export interface GhostDesk {
-  deskIndex: number;
-  label: string;
-  until: number;
-}
+import { GhostDesk } from './types';
 
 const GHOST_MS = 6000;
 
@@ -26,10 +22,11 @@ export class DeskManager {
 
   /** agent_id novo ocupa a menor mesa livre. -1 se o escritório está cheio. */
   assign(agentId: string): number {
+    for (const [desk, id] of this.occupied) if (id === agentId) return desk;
     for (let i = 0; i < this.total; i++) {
       if (!this.occupied.has(i)) {
         this.occupied.set(i, agentId);
-        this.ghosts = this.ghosts.filter(g => g.deskIndex !== i);
+        this.ghosts = this.ghosts.filter((g) => g.deskIndex !== i);
         return i;
       }
     }
@@ -52,7 +49,7 @@ export class DeskManager {
 
   activeGhosts(): GhostDesk[] {
     const now = Date.now();
-    this.ghosts = this.ghosts.filter(g => g.until > now);
+    this.ghosts = this.ghosts.filter((g) => g.until > now);
     return this.ghosts;
   }
 

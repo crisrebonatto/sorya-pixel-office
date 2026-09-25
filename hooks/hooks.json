@@ -1,21 +1,14 @@
 {
-  "description": "Agent Office: telemetria visual de agentes. Hooks async — nunca bloqueiam o trabalho.",
+  "description": "Agent Office: telemetria visual de agentes. Hooks async — nunca bloqueiam o trabalho; repassam o evento a todas as janelas do VS Code/Antigravity com o escritório aberto.",
   "hooks": {
     "SessionStart": [
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:${AGENT_OFFICE_PORT:-4517}/event",
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/agent-office-hook.js\" claude",
             "async": true,
-            "timeout": 5,
-            "headers": {
-              "Authorization": "Bearer $AGENT_OFFICE_TOKEN"
-            },
-            "allowedEnvVars": [
-              "AGENT_OFFICE_TOKEN",
-              "AGENT_OFFICE_PORT"
-            ]
+            "timeout": 5
           }
         ]
       }
@@ -24,210 +17,86 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:${AGENT_OFFICE_PORT:-4517}/event",
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/agent-office-hook.js\" claude",
             "async": true,
-            "timeout": 5,
-            "headers": {
-              "Authorization": "Bearer $AGENT_OFFICE_TOKEN"
-            },
-            "allowedEnvVars": [
-              "AGENT_OFFICE_TOKEN",
-              "AGENT_OFFICE_PORT"
-            ]
+            "timeout": 5
           }
         ]
       }
     ],
-    "SubagentStart": [
+    "UserPromptSubmit": [
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:${AGENT_OFFICE_PORT:-4517}/event",
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/agent-office-hook.js\" claude",
             "async": true,
-            "timeout": 5,
-            "headers": {
-              "Authorization": "Bearer $AGENT_OFFICE_TOKEN"
-            },
-            "allowedEnvVars": [
-              "AGENT_OFFICE_TOKEN",
-              "AGENT_OFFICE_PORT"
-            ]
-          }
-        ]
-      }
-    ],
-    "SubagentStop": [
-      {
-        "hooks": [
-          {
-            "type": "http",
-            "url": "http://127.0.0.1:${AGENT_OFFICE_PORT:-4517}/event",
-            "async": true,
-            "timeout": 5,
-            "headers": {
-              "Authorization": "Bearer $AGENT_OFFICE_TOKEN"
-            },
-            "allowedEnvVars": [
-              "AGENT_OFFICE_TOKEN",
-              "AGENT_OFFICE_PORT"
-            ]
+            "timeout": 5
           }
         ]
       }
     ],
     "PreToolUse": [
       {
+        "matcher": "*",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:${AGENT_OFFICE_PORT:-4517}/event",
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/agent-office-hook.js\" claude",
             "async": true,
-            "timeout": 5,
-            "headers": {
-              "Authorization": "Bearer $AGENT_OFFICE_TOKEN"
-            },
-            "allowedEnvVars": [
-              "AGENT_OFFICE_TOKEN",
-              "AGENT_OFFICE_PORT"
-            ]
+            "timeout": 5
           }
-        ],
-        "matcher": "*"
+        ]
       }
     ],
     "PostToolUse": [
       {
+        "matcher": "*",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:${AGENT_OFFICE_PORT:-4517}/event",
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/agent-office-hook.js\" claude",
             "async": true,
-            "timeout": 5,
-            "headers": {
-              "Authorization": "Bearer $AGENT_OFFICE_TOKEN"
-            },
-            "allowedEnvVars": [
-              "AGENT_OFFICE_TOKEN",
-              "AGENT_OFFICE_PORT"
-            ]
+            "timeout": 5
           }
-        ],
-        "matcher": "*"
+        ]
       }
     ],
     "PostToolUseFailure": [
       {
+        "matcher": "*",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:${AGENT_OFFICE_PORT:-4517}/event",
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/agent-office-hook.js\" claude",
             "async": true,
-            "timeout": 5,
-            "headers": {
-              "Authorization": "Bearer $AGENT_OFFICE_TOKEN"
-            },
-            "allowedEnvVars": [
-              "AGENT_OFFICE_TOKEN",
-              "AGENT_OFFICE_PORT"
-            ]
-          }
-        ],
-        "matcher": "*"
-      }
-    ],
-    "Notification": [
-      {
-        "hooks": [
-          {
-            "type": "http",
-            "url": "http://127.0.0.1:${AGENT_OFFICE_PORT:-4517}/event",
-            "async": true,
-            "timeout": 5,
-            "headers": {
-              "Authorization": "Bearer $AGENT_OFFICE_TOKEN"
-            },
-            "allowedEnvVars": [
-              "AGENT_OFFICE_TOKEN",
-              "AGENT_OFFICE_PORT"
-            ]
+            "timeout": 5
           }
         ]
       }
     ],
     "PermissionRequest": [
       {
+        "matcher": "*",
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:${AGENT_OFFICE_PORT:-4517}/event",
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/agent-office-hook.js\" claude",
             "async": true,
-            "timeout": 5,
-            "headers": {
-              "Authorization": "Bearer $AGENT_OFFICE_TOKEN"
-            },
-            "allowedEnvVars": [
-              "AGENT_OFFICE_TOKEN",
-              "AGENT_OFFICE_PORT"
-            ]
+            "timeout": 5
           }
         ]
       }
     ],
-    "TaskCreated": [
+    "Notification": [
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:${AGENT_OFFICE_PORT:-4517}/event",
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/agent-office-hook.js\" claude",
             "async": true,
-            "timeout": 5,
-            "headers": {
-              "Authorization": "Bearer $AGENT_OFFICE_TOKEN"
-            },
-            "allowedEnvVars": [
-              "AGENT_OFFICE_TOKEN",
-              "AGENT_OFFICE_PORT"
-            ]
-          }
-        ]
-      }
-    ],
-    "TaskCompleted": [
-      {
-        "hooks": [
-          {
-            "type": "http",
-            "url": "http://127.0.0.1:${AGENT_OFFICE_PORT:-4517}/event",
-            "async": true,
-            "timeout": 5,
-            "headers": {
-              "Authorization": "Bearer $AGENT_OFFICE_TOKEN"
-            },
-            "allowedEnvVars": [
-              "AGENT_OFFICE_TOKEN",
-              "AGENT_OFFICE_PORT"
-            ]
-          }
-        ]
-      }
-    ],
-    "TeammateIdle": [
-      {
-        "hooks": [
-          {
-            "type": "http",
-            "url": "http://127.0.0.1:${AGENT_OFFICE_PORT:-4517}/event",
-            "async": true,
-            "timeout": 5,
-            "headers": {
-              "Authorization": "Bearer $AGENT_OFFICE_TOKEN"
-            },
-            "allowedEnvVars": [
-              "AGENT_OFFICE_TOKEN",
-              "AGENT_OFFICE_PORT"
-            ]
+            "timeout": 5
           }
         ]
       }
@@ -236,17 +105,34 @@
       {
         "hooks": [
           {
-            "type": "http",
-            "url": "http://127.0.0.1:${AGENT_OFFICE_PORT:-4517}/event",
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/agent-office-hook.js\" claude",
             "async": true,
-            "timeout": 5,
-            "headers": {
-              "Authorization": "Bearer $AGENT_OFFICE_TOKEN"
-            },
-            "allowedEnvVars": [
-              "AGENT_OFFICE_TOKEN",
-              "AGENT_OFFICE_PORT"
-            ]
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/agent-office-hook.js\" claude",
+            "async": true,
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/agent-office-hook.js\" claude",
+            "async": true,
+            "timeout": 5
           }
         ]
       }
