@@ -5,12 +5,17 @@
 (function () {
   'use strict';
   const KEY = 'agent-office-view';
-  // O SSE pode entregar o primeiro quadro antes de office.js carregar:
-  // guarda o último e entrega quando a UI avisar 'ready'.
+  // O SSE pode entregar os primeiros quadros antes de office.js carregar:
+  // guarda (do estado, só o último) e entrega quando a UI avisar 'ready'.
   let ready = false;
-  let last = null;
-  const deliver = () => {
-    if (ready && last) window.postMessage({ type: 'state', state: last }, location.origin);
+  let queue = [];
+  const deliver = (msg) => {
+    if (ready) {
+      window.postMessage(msg, location.origin);
+      return;
+    }
+    if (msg.type === 'state') queue = queue.filter((m) => m.type !== 'state');
+    queue.push(msg);
   };
   window.__AO_HOST = {
     browser: true,
@@ -31,7 +36,7 @@
     postMessage(msg) {
       if (msg && msg.type === 'ready') {
         ready = true;
-        deliver();
+        for (const m of queue.splice(0)) window.postMessage(m, location.origin);
       }
       if (!msg || msg.type !== 'clearFinished') return;
       fetch('/office/action', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Agent-Office': '1' }, body: JSON.stringify(msg) }).catch(() => undefined);
@@ -43,11 +48,19 @@
     es.addEventListener('state', (e) => {
       document.documentElement.classList.remove('ao-offline');
       try {
-        last = JSON.parse(e.data);
+        deliver({ type: 'state', state: JSON.parse(e.data) });
       } catch (_) {
-        return; /* quadro inválido: espera o próximo */
+        /* quadro inválido: espera o próximo */
       }
-      deliver();
+    });
+    // terminal ao vivo: { type: 'liveInit' | 'live', ... } já mascarado
+    es.addEventListener('live', (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg && (msg.type === 'live' || msg.type === 'liveInit')) deliver(msg);
+      } catch (_) {
+        /* ignora */
+      }
     });
     es.onerror = () => {
       // Editor fechado ou recarregando: com a porta fora do ar o EventSource

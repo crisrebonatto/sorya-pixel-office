@@ -2,7 +2,7 @@
   "name": "agent-office",
   "displayName": "Agent Office",
   "description": "Dev hub em pixel art: cada agente de IA (Claude Code, Codex, Gemini CLI, Antigravity, Cursor, Copilot) trabalhando na própria mesa, com kanban e feed em tempo real.",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "publisher": "sorya",
   "private": true,
   "license": "MIT",
@@ -75,6 +75,10 @@
       {
         "command": "agentOffice.clearBoard",
         "title": "Agent Office: Limpar colunas Feito/Falhou"
+      },
+      {
+        "command": "agentOffice.toggleLiveTerminal",
+        "title": "Agent Office: Ligar/desligar terminal ao vivo"
       },
       {
         "command": "agentOffice.delegateToCodex",
@@ -155,6 +159,17 @@
           "type": "string",
           "default": "codex",
           "description": "Binário do Codex CLI usado pelo adaptador de delegação."
+        },
+        "agentOffice.liveTerminal": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "**Terminal ao vivo** no painel de cada agente: comandos, saída (testes, build) e diffs de código. Chaves, tokens e dados pessoais em formatos comuns viram `‹oculto›`; `.env`, chaves, credenciais e leituras de arquivo ficam de fora. Tudo local, em memória. O mascaramento pega os formatos comuns, mas não é infalível."
+        },
+        "agentOffice.liveTerminalHide": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "markdownDescription": "Arquivos que o terminal ao vivo nunca mostra, além dos sensíveis de sempre. Nome ou glob simples: `*.sql`, `config/prod.json`, `**/fixtures/**`."
         }
       }
     },

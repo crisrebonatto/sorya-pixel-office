@@ -19,6 +19,8 @@ export interface OfficeWebOptions {
   viewToken: string;
   port: () => number;
   snapshot: () => unknown;
+  /** Eventos extras enviados a quem conecta (ex.: histórico do terminal ao vivo). */
+  onConnect?: () => Array<{ event: string; data: unknown }>;
   onAction?: (msg: { type?: string }) => void;
 }
 
@@ -26,6 +28,8 @@ export interface OfficeWeb {
   /** true se a requisição era do escritório (já respondida). */
   handle(req: http.IncomingMessage, res: http.ServerResponse): boolean;
   broadcast(snapshot: unknown): void;
+  /** Evento SSE nomeado para todas as abas abertas. */
+  send(event: string, data: unknown): void;
   url(withToken: boolean): string;
   clients(): number;
   dispose(): void;
@@ -160,6 +164,7 @@ export function createOfficeWeb(opts: OfficeWebOptions): OfficeWeb {
       res.writeHead(200, Object.assign({}, SECURITY_HEADERS, { 'Content-Type': 'text/event-stream', Connection: 'keep-alive' }));
       res.write('retry: 2000\n\n');
       res.write('event: state\ndata: ' + JSON.stringify(opts.snapshot()) + '\n\n');
+      for (const x of opts.onConnect ? opts.onConnect() : []) res.write('event: ' + x.event + '\ndata: ' + JSON.stringify(x.data) + '\n\n');
       streams.add(res);
       req.on('close', () => streams.delete(res));
       return;
@@ -192,6 +197,12 @@ export function createOfficeWeb(opts: OfficeWebOptions): OfficeWeb {
     send(res, 404, 'text/plain', 'not found');
   }
 
+  function sendEvent(event: string, data: unknown): void {
+    if (!streams.size) return;
+    const frame = 'event: ' + event + '\ndata: ' + JSON.stringify(data) + '\n\n';
+    for (const res of streams) res.write(frame);
+  }
+
   return {
     handle(req, res) {
       let url: URL;
@@ -212,10 +223,10 @@ export function createOfficeWeb(opts: OfficeWebOptions): OfficeWeb {
     },
 
     broadcast(snapshot) {
-      if (!streams.size) return;
-      const frame = 'event: state\ndata: ' + JSON.stringify(snapshot) + '\n\n';
-      for (const res of streams) res.write(frame);
+      sendEvent('state', snapshot);
     },
+
+    send: sendEvent,
 
     url(withToken) {
       return 'http://127.0.0.1:' + opts.port() + '/office' + (withToken ? '?t=' + opts.viewToken : '');

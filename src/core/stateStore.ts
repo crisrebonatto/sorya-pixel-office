@@ -350,6 +350,11 @@ export class StateStore extends EventEmitter {
     }
   }
 
+  /** O agente está no escritório agora? */
+  has(id: string): boolean {
+    return this.agents.has(id);
+  }
+
   /** Emite um snapshot novo sem mudança de estado (ex.: pastas do workspace mudaram). */
   refresh(): void {
     this.changed();

@@ -1,7 +1,8 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { AgentSource, NormalizedEvent, TaskStatus } from '../core/types';
+import { AgentSource, LiveDetail, NormalizedEvent, TaskStatus } from '../core/types';
+import { linesFromReplace, linesFromStructuredPatch, liveSwitch, relativeTo } from '../core/live';
 import { categorizeTool, clip, fileOf, needsApproval, promptTitle, redactAction } from '../server/redact';
 import { FileTailer, TailChunk, num, obj, parseJson, projectOf, str, tsOf } from './tailer';
 
@@ -37,6 +38,9 @@ export class ClaudeTranscriptParser {
   private endedMessages = new Set<string>();
   private seenUuid = new Set<string>();
   private taskCreates = new Map<string, string>();
+  // tool_result não diz qual ferramenta foi: guarda nome (e, com o terminal
+  // ao vivo ligado, a entrada das edições) por tool_use_id
+  private tools = new Map<string, { name: string; input?: Record<string, unknown> }>();
   private started = false;
   private lastModel: string | undefined;
   private lastAt = 0;
@@ -152,13 +156,13 @@ export class ClaudeTranscriptParser {
       const bt = str(block['type']);
       if (bt === 'tool_result') {
         const key = str(block['tool_use_id']);
-        const text = typeof block['content'] === 'string' ? (block['content'] as string) : '';
+        const text = resultText(block['content']);
         const rejected = /doesn't want to proceed with this tool use|tool use was rejected/i.test(text);
-        if (block['is_error'] === true && !rejected) {
-          out.push({ ...base, kind: 'tool-error', key });
-        } else {
-          out.push({ ...base, kind: 'tool-end', key });
-        }
+        const failed = block['is_error'] === true && !rejected;
+        const ev: NormalizedEvent = { ...base, kind: failed ? 'tool-error' : 'tool-end', key };
+        if (liveSwitch.on && key && !rejected) ev.live = this.liveResult(key, text, tur, failed, str(line['cwd']));
+        out.push(ev);
+        if (key) this.tools.delete(key);
         // TaskCreate devolve o id da tarefa no resultado
         if (key && this.taskCreates.has(key)) {
           const subject = this.taskCreates.get(key)!;
@@ -257,7 +261,7 @@ export class ClaudeTranscriptParser {
         const name = str(block['name']) || 'tool';
         const input = block['input'];
         const key = str(block['id']);
-        out.push({
+        const ev: NormalizedEvent = {
           ...base,
           kind: 'tool-start',
           tool: name,
@@ -266,7 +270,13 @@ export class ClaudeTranscriptParser {
           file: fileOf(name, input),
           key,
           needsApproval: this.approvalLikely(name)
-        });
+        };
+        if (key) this.rememberTool(key, name, obj(input));
+        if (liveSwitch.on && SHELL_TOOLS.has(name)) {
+          const command = str(obj(input)['command']);
+          if (command) ev.live = { t: 'cmd', command };
+        }
+        out.push(ev);
         this.todoEvents(name, obj(input), key, base, out);
       } else if (bt === 'thinking' || bt === 'text') {
         out.push({ ...base, kind: 'heartbeat' });
@@ -278,6 +288,48 @@ export class ClaudeTranscriptParser {
       if (this.endedMessages.size > 400) this.endedMessages.clear();
       out.push({ ...base, kind: 'turn-end', key: 'turn:' + mid });
     }
+  }
+
+  private rememberTool(key: string, name: string, input: Record<string, unknown>): void {
+    this.tools.set(key, { name, input: liveSwitch.on && EDIT_TOOLS.has(name) ? input : undefined });
+    if (this.tools.size > 300) this.tools.delete(this.tools.keys().next().value as string);
+  }
+
+  /**
+   * Conteúdo para o terminal ao vivo: saída de comando (Bash) ou diff de
+   * edição (Edit/MultiEdit/Write). Leituras (Read, Grep, WebFetch…) nunca.
+   */
+  private liveResult(key: string, text: string, tur: Record<string, unknown>, failed: boolean, cwd: string | undefined): LiveDetail | undefined {
+    const tool = this.tools.get(key);
+    if (!tool) return undefined;
+    if (SHELL_TOOLS.has(tool.name)) {
+      const hasStreams = typeof tur['stdout'] === 'string' || typeof tur['stderr'] === 'string';
+      let output = hasStreams ? [str(tur['stdout']) || '', str(tur['stderr']) || ''].filter(Boolean).join('\n') : text;
+      const code = /^Exit code (-?\d+)/.exec(text) || /^Exit code (-?\d+)/.exec(output);
+      if (!hasStreams && code) output = output.slice(code[0].length).replace(/^\s*\n/, '');
+      const exitCode = code ? Number(code[1]) : num(tur['exitCode']) ?? num(tur['returnCode']) ?? (failed ? undefined : 0);
+      return { t: 'out', output, exitCode, isError: failed };
+    }
+    if (!EDIT_TOOLS.has(tool.name) || failed) return undefined;
+    const input = tool.input || {};
+    const file = str(tur['filePath']) || str(input['file_path']) || str(input['notebook_path']);
+    if (!file) return undefined;
+    const path = relativeTo(file, cwd);
+    let lines = linesFromStructuredPatch(tur['structuredPatch']);
+    const created = str(tur['type']) === 'create';
+    if (!lines.length && (created || tool.name === 'Write')) {
+      const content = str(tur['content']) ?? str(input['content']) ?? '';
+      lines = content.split('\n').map((l) => '+' + l);
+    }
+    if (!lines.length && tool.name === 'Edit') lines = linesFromReplace(str(input['old_string']) || '', str(input['new_string']) || '');
+    if (!lines.length && tool.name === 'MultiEdit' && Array.isArray(input['edits'])) {
+      for (const raw of input['edits'] as unknown[]) {
+        const ed = obj(raw);
+        lines.push(...linesFromReplace(str(ed['old_string']) || '', str(ed['new_string']) || ''));
+      }
+    }
+    if (!lines.length) return undefined;
+    return { t: 'diff', files: [{ path, lines, created }] };
   }
 
   private approvalLikely(tool: string): boolean {
@@ -319,6 +371,20 @@ export class ClaudeTranscriptParser {
       });
     }
   }
+}
+
+const SHELL_TOOLS = new Set(['Bash', 'PowerShell']);
+const EDIT_TOOLS = new Set(['Edit', 'MultiEdit', 'Write']);
+
+/** Texto de um tool_result (string ou blocos {type:'text'}). */
+function resultText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return '';
+  return content
+    .map((b) => obj(b))
+    .filter((b) => str(b['type']) === 'text')
+    .map((b) => str(b['text']) || '')
+    .join('\n');
 }
 
 export function todoStatus(s: string | undefined): TaskStatus {

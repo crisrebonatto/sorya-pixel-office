@@ -53,6 +53,7 @@ Você continua trabalhando onde já trabalha. O escritório apenas observa.
 | `core/stateStore.ts` | Agentes, mesas fixas, tarefas, feed, deduplicação hook × registro, heurística de espera, limpeza por inatividade. |
 | `core/names.ts` | Personas a partir das fichas de agentes; overrides nas configurações. |
 | `server/*` | Servidor local (token, `Host` local, repasse entre janelas), descoberta por janela e redação. |
+| `core/live.ts`, `server/mask.ts` | Terminal ao vivo (opt-in): os parsers anexam comando/saída/diff brutos ao evento só com ele ligado; o `LiveLog` mascara, corta e guarda algumas dezenas de entradas por agente, em memória. |
 | `server/officeWeb.ts` | Modo navegador: serve a mesma UI em `/office`, estado ao vivo por Server-Sent Events, token de visualização que vira cookie. |
 | `hooks/installer.ts` | Instala e remove hooks em Claude, Codex, Gemini, Cursor e Copilot. |
 | `media/pixel/*` | Engine de pixel art procedural: personagens, mobília, mapa, cena. |
@@ -146,6 +147,10 @@ Ver `src/core/types.ts`: `Agent`, `Task`, `Activity`, `OfficeSnapshot`, `Normali
 - Servidor com bind **sempre** em `127.0.0.1`. Token por janela, com comparação em tempo constante. Só aceita `Host` local, contra DNS rebinding.
 - **Redação** (`server/redact.ts`) antes de qualquer estado: basename de arquivo, binário + subcomando simples, host de URL. Nunca conteúdo de edição, texto de busca ou argumentos.
 - Webview com CSP sem `connect-src` e scripts só com nonce.
+- Terminal ao vivo (opt-in, desligado por padrão):
+  - o conteúdo bruto nunca sai do processo da extensão: `server/mask.ts` troca segredos por `‹oculto›` antes de virar `LiveEntry`;
+  - três camadas: arquivos sensíveis sem conteúdo; comandos que leem arquivo ou imprimem segredo sem saída; padrões conhecidos (tokens com prefixo, JWT, chaves privadas, `SENHA=valor`, cabeçalhos, URL com senha, CPF/CNPJ, cartão, e-mail, entropia);
+  - testes de vazamento (`test/live.test.js`) com uma lista de segredos que não podem sobrar e de código comum que não pode mudar.
 - Modo navegador:
   - Token de **visualização** separado do token dos hooks. `/office?t=<token>` grava um cookie `HttpOnly; SameSite=Strict` e redireciona para `/office`, então o token não fica na barra de endereço, nem em print ou gravação.
   - Sem o cookie, só os arquivos estáticos da UI respondem (código da extensão, sem dados).

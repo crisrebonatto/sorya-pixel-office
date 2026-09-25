@@ -1,6 +1,7 @@
 import * as os from 'os';
 import * as path from 'path';
-import { AgentSource, NormalizedEvent } from '../core/types';
+import { AgentSource, LiveDetail, LiveFileDiff, NormalizedEvent } from '../core/types';
+import { liveSwitch, parseApplyPatch, relativeTo } from '../core/live';
 import { categorizeTool, clip, fileOf, patchFiles, promptTitle, redactAction } from '../server/redact';
 import { FileTailer, TailChunk, num, obj, parseJson, projectOf, str, tsOf } from './tailer';
 import { todoStatus } from './claude';
@@ -22,6 +23,7 @@ export class CodexRolloutParser {
   private tokens = { tin: 0, tout: 0 };
   private calls = new Map<string, string>();
   private planSize = 0;
+  private cwd: string | undefined;
   private base: Partial<NormalizedEvent> = {};
 
   constructor(private ignore: (threadId: string) => boolean = () => false) {}
@@ -45,6 +47,7 @@ export class CodexRolloutParser {
       const parentThread = str(spawn['parent_thread_id']) || str(payload['parent_thread_id']);
       this.parentId = parentThread ? SOURCE + ':' + parentThread : undefined;
       const git = obj(payload['git']);
+      this.cwd = str(payload['cwd']);
       this.base = {
         project: projectOf(payload['cwd']),
         branch: str(git['branch']),
@@ -65,6 +68,7 @@ export class CodexRolloutParser {
       this.approval = typeof payload['approval_policy'] === 'string' ? (payload['approval_policy'] as string) : 'granular';
       const model = str(payload['model']);
       if (model) this.base.model = model;
+      this.cwd = str(payload['cwd']) || this.cwd;
       out.push({ ...base, kind: 'meta', model, project: projectOf(payload['cwd']) || this.base.project });
       return out;
     }
@@ -101,7 +105,24 @@ export class CodexRolloutParser {
         }
         case 'patch_apply_end':
           if (payload['success'] === false) out.push({ ...base, kind: 'tool-error', key: str(payload['call_id']) });
+          if (liveSwitch.on) out.push({ ...base, kind: 'heartbeat', key: str(payload['call_id']), live: { t: 'out', output: '', isError: payload['success'] === false } });
           break;
+        case 'patch_apply_begin': {
+          const ev: NormalizedEvent = { ...base, kind: 'heartbeat', key: str(payload['call_id']) };
+          const files = liveSwitch.on ? this.changesToDiffs(obj(payload['changes'])) : [];
+          if (files.length) ev.live = { t: 'diff', files, pending: true };
+          out.push(ev);
+          break;
+        }
+        case 'exec_command_end': {
+          const ev: NormalizedEvent = { ...base, kind: 'heartbeat', key: str(payload['call_id']) };
+          if (liveSwitch.on) {
+            const output = str(payload['aggregated_output']) ?? [str(payload['stdout']) || '', str(payload['stderr']) || ''].filter(Boolean).join('\n');
+            ev.live = { t: 'out', output, exitCode: num(payload['exit_code']) };
+          }
+          out.push(ev);
+          break;
+        }
         case 'error':
           out.push({ ...base, kind: 'tool-error', action: clip('erro: ' + (str(payload['message']) || ''), 60) });
           break;
@@ -119,7 +140,7 @@ export class CodexRolloutParser {
         const raw = t === 'custom_tool_call' ? payload['input'] : payload['arguments'];
         const input = typeof raw === 'string' && t === 'function_call' ? safeParse(raw) : raw;
         if (key) this.calls.set(key, name);
-        out.push({
+        const ev: NormalizedEvent = {
           ...base,
           kind: 'tool-start',
           tool: name,
@@ -128,19 +149,27 @@ export class CodexRolloutParser {
           file: name === 'apply_patch' && typeof input === 'string' ? patchFiles(input)[0] : fileOf(name, input),
           key,
           needsApproval: this.approval === 'untrusted' && categorizeTool(name) !== 'reading'
-        });
+        };
+        if (liveSwitch.on) ev.live = this.liveCall(name, input);
+        out.push(ev);
         if (name === 'update_plan') this.plan(obj(input), base, out);
       } else if (t === 'function_call_output' || t === 'custom_tool_call_output') {
         const key = str(payload['call_id']);
         const output = typeof payload['output'] === 'string' ? (payload['output'] as string) : JSON.stringify(payload['output'] || '');
         const code = /Process exited with code (-?\d+)/.exec(output) || /"exit_code"\s*:\s*(-?\d+)/.exec(output);
         const failed = (code && code[1] !== '0') || /^(error|apply_patch verification failed)/i.test(output.trim());
-        out.push({ ...base, kind: failed ? 'tool-error' : 'tool-end', key });
+        const ev: NormalizedEvent = { ...base, kind: failed ? 'tool-error' : 'tool-end', key };
+        const name = key ? this.calls.get(key) : undefined;
+        if (liveSwitch.on && name) ev.live = liveOutput(name, output, !!failed);
+        out.push(ev);
         if (key) this.calls.delete(key);
       } else if (t === 'local_shell_call') {
         const action = obj(payload['action']);
         const key = str(payload['call_id']);
-        out.push({ ...base, kind: 'tool-start', tool: 'shell', state: 'running', action: redactAction('shell', { command: action['command'] }), key });
+        if (key) this.calls.set(key, 'shell');
+        const ev: NormalizedEvent = { ...base, kind: 'tool-start', tool: 'shell', state: 'running', action: redactAction('shell', { command: action['command'] }), key };
+        if (liveSwitch.on) ev.live = this.liveCall('shell', { command: action['command'] });
+        out.push(ev);
         if (str(payload['status']) === 'completed') out.push({ ...base, kind: 'tool-end', key });
       } else if (t === 'web_search_call') {
         out.push({ ...base, kind: 'tool-start', tool: 'web_search_call', state: 'searching', action: 'pesquisando na web' });
@@ -149,6 +178,35 @@ export class CodexRolloutParser {
       }
     }
     return out;
+  }
+
+  /** Comando (shell/exec_command) ou patch (apply_patch) para o terminal ao vivo. */
+  private liveCall(name: string, input: unknown): LiveDetail | undefined {
+    if (name === 'apply_patch') {
+      const patch = typeof input === 'string' ? input : str(obj(input)['input']) || str(obj(input)['patch']);
+      if (!patch) return undefined;
+      const files = parseApplyPatch(patch).map((f) => ({ ...f, path: relativeTo(f.path, this.cwd) }));
+      return files.length ? { t: 'diff', files, pending: true } : undefined;
+    }
+    if (!SHELL_CALLS.has(name)) return undefined;
+    const command = commandOf(input);
+    return command ? { t: 'cmd', command } : undefined;
+  }
+
+  private changesToDiffs(changes: Record<string, unknown>): LiveFileDiff[] {
+    const files: LiveFileDiff[] = [];
+    for (const [file, raw] of Object.entries(changes)) {
+      const c = obj(raw);
+      const path = relativeTo(file, this.cwd);
+      if (c['add']) files.push({ path, created: true, lines: (str(obj(c['add'])['content']) || '').split('\n').map((l) => '+' + l) });
+      else if (c['delete']) files.push({ path, deleted: true, lines: [] });
+      else if (c['update']) {
+        const u = obj(c['update']);
+        const diff = (str(u['unified_diff']) || '').split('\n').filter((l) => !/^(---|\+\+\+) /.test(l));
+        files.push({ path: relativeTo(str(u['move_path']) || file, this.cwd), lines: diff });
+      }
+    }
+    return files;
   }
 
   private ev(at: number, replay: boolean): NormalizedEvent {
@@ -165,6 +223,45 @@ export class CodexRolloutParser {
     for (let i = steps.length; i < this.planSize; i++) out.push({ ...base, kind: 'task-remove', taskId: 'plan' + i });
     this.planSize = steps.length;
   }
+}
+
+const SHELL_CALLS = new Set(['shell', 'exec_command', 'shell_command', 'container.exec', 'local_shell', 'unified_exec']);
+
+/** Texto do comando: `["bash","-lc","npm test"]` vira "npm test". */
+function commandOf(input: unknown): string | undefined {
+  const i = obj(input);
+  const cmd = i['command'] ?? i['cmd'];
+  if (typeof cmd === 'string') return cmd;
+  if (Array.isArray(cmd)) {
+    const parts = cmd.filter((p): p is string => typeof p === 'string');
+    const shell = parts.findIndex((p) => /^-(l?c|Command)$/i.test(p));
+    if (shell >= 0 && parts[shell + 1] !== undefined) return parts.slice(shell + 1).join(' ');
+    return parts.join(' ');
+  }
+  return typeof input === 'string' ? input : undefined;
+}
+
+/**
+ * Saída de uma chamada. Formatos vistos: JSON {output, metadata:{exit_code}},
+ * texto "Exit code: 0 … Output:\n…" e "Process exited with code 0 … Output:\n…".
+ */
+function liveOutput(name: string, raw: string, failed: boolean): LiveDetail | undefined {
+  if (name === 'apply_patch') return { t: 'out', output: '', isError: failed };
+  if (!SHELL_CALLS.has(name)) return undefined;
+  let output = raw;
+  let exitCode: number | undefined;
+  const parsed = safeParse(raw);
+  if (parsed && typeof parsed === 'object') {
+    const p = obj(parsed);
+    output = str(p['output']) ?? raw;
+    exitCode = num(obj(p['metadata'])['exit_code']);
+  } else {
+    const code = /(?:Exit code:|Process exited with code)\s*(-?\d+)/.exec(raw);
+    if (code) exitCode = Number(code[1]);
+    const at = raw.indexOf('Output:\n');
+    if (at >= 0) output = raw.slice(at + 'Output:\n'.length);
+  }
+  return { t: 'out', output, exitCode, isError: failed };
 }
 
 function safeParse(s: string): unknown {

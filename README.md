@@ -74,7 +74,7 @@ description: Rick — rick-construtor (antes sorya-fullstack-builder). Constrói
    - **Pela interface** (VS Code, Antigravity ou Cursor): **Extensions** → `…` → **Install from VSIX…** → escolha o arquivo baixado.
    - **Pelo terminal**, passando o caminho do arquivo (o comando procura na pasta atual):
      ```powershell
-     code --install-extension "$env:USERPROFILE\Downloads\agent-office-v0.3.1.vsix"
+     code --install-extension "$env:USERPROFILE\Downloads\agent-office-v0.4.0.vsix"
      ```
      No Antigravity e no Cursor, troque `code` por `antigravity` ou `cursor`.
 3. Recarregue a janela. A extensão aparece em **Extensions → Installed** e o ícone de prédio surge na Activity Bar.
@@ -115,6 +115,23 @@ Rode **`Agent Office: Abrir no navegador`** ou clique no **↗** no topo do escr
 - Só existe nesta máquina (`127.0.0.1`) e só enquanto o VS Code/Antigravity está aberto. Se o editor fechar, a página avisa e reconecta sozinha quando ele voltar.
 - Em Remote/WSL/SSH, o editor encaminha a porta automaticamente.
 
+### Terminal ao vivo (opcional)
+
+Clique num agente e abra a aba **terminal**: aparecem os comandos que ele roda, a saída (testes, build) e os diffs de código, ao vivo. Começa desligado. Para ligar, use o botão na aba ou **`Agent Office: Ligar/desligar terminal ao vivo`**.
+
+![Terminal ao vivo do Rick, com o segredo do webhook oculto](docs/screenshot-terminal.png)
+
+Mostra:
+- **Comandos** com ✓/✕ e o código de saída, e as últimas 60 linhas da saída.
+- **Diffs** de cada edição (Edit, Write, apply_patch), coloridos, com +/−.
+
+Não mostra:
+- **Segredos**: tokens (Anthropic, OpenAI, GitHub, AWS, Stripe, Supabase…), JWT, chaves privadas, `SENHA=valor`, `Authorization: …`, URL com senha, CPF/CNPJ, cartão, e-mail e strings com cara de chave viram `‹oculto›` antes de sair da extensão.
+- **Arquivos sensíveis**: `.env*`, chaves, credenciais, `.ssh/`, `.aws/`… aparecem só pelo nome. Acrescente outros em `agentOffice.liveTerminalHide` (ex.: `*.sql`).
+- **Leituras**: a saída de `cat`, `head`, `rg`, `env`, `printenv`, `gh auth token` e parecidos fica oculta. As ferramentas de leitura (Read, Grep, WebFetch) nunca entram.
+
+Cobre Claude Code e Codex. Tudo fica nesta máquina, em memória. O mascaramento pega os formatos comuns, mas não é infalível: uma senha que parece texto comum pode passar.
+
 ### Escritório inteiro × projeto local
 
 O escritório é a empresa toda: mostra os agentes de **todos os projetos** da máquina, não só os da pasta aberta. Se você tem três ou quatro projetos andando, vê todo mundo junto. No topo, o filtro **todos · local** troca a visão:
@@ -142,10 +159,13 @@ Interação:
 | `agentOffice.agentDirs` | `[]` | Pastas extras com fichas de agentes |
 | `agentOffice.port` | `4517` | Porta dos hooks e do modo navegador (sobe na próxima livre) |
 | `agentOffice.codexCommand` | `codex` | Binário para `Delegar tarefa ao Codex` |
+| `agentOffice.liveTerminal` | `false` | Terminal ao vivo no painel do agente (comandos, saída, diffs mascarados) |
+| `agentOffice.liveTerminalHide` | `[]` | Arquivos extras que o terminal nunca mostra (`*.sql`, `config/prod.json`) |
 
 ## Privacidade e segurança
 
 - **Tudo local.** O servidor escuta **só em `127.0.0.1`**, exige token por janela e rejeita `Host` que não seja local (proteção contra DNS rebinding). A webview não tem `connect-src`: não fala com a rede.
+- **Terminal ao vivo só se você ligar.** O conteúdo passa pelo mascaramento dentro da extensão: a webview e o navegador já recebem `‹oculto›` no lugar dos segredos. Arquivos sensíveis e leituras de arquivo ficam de fora.
 - **Modo navegador só leitura.** Usa um token próprio de visualização (não serve para enviar eventos). Sem ele, a página não mostra dado nenhum, e outra origem não consegue ler o estado nem disparar ações.
 - **Redação antes de virar estado.** Arquivos entram só pelo nome, comandos só pelo binário e subcomando (`git push`, nunca argumentos), web só pelo host. Buscas e conteúdo de edições nunca passam. O título do card é a primeira linha do seu pedido.
 - **Nada é persistido.** O estado vive em memória e é reconstruído dos registros a cada abertura. A única coisa gravada é `~/.agent-office/endpoints/<pid>.json` (porta + token, permissão `0600`), apagada ao fechar a janela.
@@ -155,7 +175,7 @@ Interação:
 ```sh
 npm install
 npm run compile     # TypeScript → out/
-npm test            # 30 testes (parsers, hooks, store, nomes, redação, I/O)
+npm test            # 38 testes (parsers, hooks, store, nomes, redação, I/O)
 npm run preview     # gera dev/preview.html (webview real + demo) para abrir no navegador
 ```
 

@@ -109,8 +109,109 @@
     ['demo-ag', 'Walkthrough do Guardian']
   ];
 
+  // Terminal ao vivo da demo: conteúdo fictício, já como sai do mascaramento.
+  const DEMO_CMDS = {
+    pytest: { cmd: 'pytest -q tests/test_pix.py', out: ['............                                         [100%]', '12 passed in 1.84s'] },
+    git: { cmd: 'git push origin feat/pix', out: ['To github.com:sorya/dmi.git', '   4f2a9c1..8b7d3e0  feat/pix -> feat/pix'] },
+    'pnpm test': { cmd: 'pnpm test --filter repricer', out: [' ✓ src/repricer.test.ts (18 tests) 412ms', '', ' Test Files  1 passed (1)', '      Tests  18 passed (18)', '   Duration  1.31s'] },
+    mutmut: { cmd: 'mutmut run --paths-to-mutate services/pix.py', out: ['42/42  🎉 39  ⏰ 0  🤔 0  🙁 3', 'Mutation score: 92.9%'] },
+    'pytest -k auth': {
+      cmd: 'pytest -q -k auth',
+      out: ['......                                               [100%]', '6 passed, 31 deselected in 0.88s'],
+      fail: ['F.....                                               [100%]', 'FAILED tests/test_token.py::test_refresh_expirado', 'E   AssertionError: esperado 401, veio 200', '1 failed, 5 passed, 31 deselected in 0.92s']
+    },
+    semgrep: { cmd: 'semgrep --config p/owasp-top-ten prompts/', out: ['Ran 214 rules on 12 files: 0 findings.'] },
+    'o app': { cmd: 'uvicorn app.main:app --port 8000', out: ['INFO:     Started server process [4121]', 'INFO:     Uvicorn running on http://127.0.0.1:8000'] }
+  };
+  const DEMO_DIFFS = {
+    'routes/pix.py': [
+      '@@ -12,7 +12,11 @@',
+      ' @router.post("/api/pix")',
+      '-async def criar_pix(body: PixIn):',
+      '+async def criar_pix(body: PixIn, idem: str = Header(alias="Idempotency-Key")):',
+      '+    if await repo.ja_processado(idem):',
+      '+        return await repo.resposta(idem)',
+      '     cobranca = await pix.criar(body)',
+      '+    await repo.guardar(idem, cobranca)',
+      '     return cobranca'
+    ],
+    'services/pix.py': [
+      '@@ -1,6 +1,9 @@',
+      ' import hmac',
+      '+import hashlib',
+      ' ',
+      '-WEBHOOK_SECRET = ""',
+      '+WEBHOOK_SECRET = "‹oculto›"',
+      '+',
+      '+def assinatura_valida(corpo: bytes, assinatura: str) -> bool:',
+      '+    esperado = hmac.new(WEBHOOK_SECRET.encode(), corpo, hashlib.sha256).hexdigest()',
+      '+    return hmac.compare_digest(esperado, assinatura)'
+    ],
+    'tests/test_pix.py': [
+      '@@ -40,3 +40,9 @@',
+      '+def test_idempotencia(client):',
+      '+    r1 = client.post("/api/pix", json=PIX, headers={"Idempotency-Key": "abc"})',
+      '+    r2 = client.post("/api/pix", json=PIX, headers={"Idempotency-Key": "abc"})',
+      '+    assert r1.json() == r2.json()',
+      '+    assert repo.total() == 1'
+    ],
+    'repricer.ts': [
+      '@@ -18,5 +18,5 @@',
+      ' export function preco(custo: number, margem: number) {',
+      '-  return Math.round(custo * (1 + margem) * 100) / 100;',
+      '+  return centavos(custo) * (100 + margem * 100) / 100 / 100;',
+      ' }'
+    ],
+    'auth/token.py': [
+      '@@ -27,6 +27,8 @@',
+      ' def refresh(token: Token) -> Token:',
+      '+    if token.expira_em < agora():',
+      '+        raise TokenExpirado()',
+      '     return emitir(token.usuario)'
+    ]
+  };
+
+  function demoTerm(a, state, action, seqRef) {
+    const out = [];
+    const now = Date.now();
+    if (a._cmd) {
+      const c = a._cmd;
+      a._cmd = null;
+      const failed = state === 'error';
+      c.status = failed ? 'error' : 'ok';
+      c.exitCode = failed ? 1 : 0;
+      c.lines = failed && c._fail ? c._fail : c._ok;
+      out.push(c);
+    }
+    if (state === 'running' && action) {
+      const key = action.replace(/^(rodando|subindo) /, '');
+      const d = DEMO_CMDS[key] || { cmd: key, out: ['ok'] };
+      a._cmd = { id: 'demo-l' + seqRef.n++, at: now, agentId: a.id, kind: 'cmd', title: d.cmd, lines: [], status: 'running', masked: 0, omitted: 0, _ok: d.out, _fail: d.fail };
+      out.push(a._cmd);
+    } else if (state === 'writing' && action) {
+      const file = action.split(' ').pop();
+      const lines = DEMO_DIFFS[file] || ['@@ -1,3 +1,4 @@', ' // ' + file, '+// ajuste feito pelo agente', ' export {}'];
+      out.push({
+        id: 'demo-l' + seqRef.n++,
+        at: now,
+        agentId: a.id,
+        kind: 'diff',
+        title: file,
+        lines,
+        status: 'ok',
+        masked: lines.join('\n').split('‹oculto›').length - 1,
+        omitted: 0,
+        adds: lines.filter((l) => l[0] === '+').length,
+        dels: lines.filter((l) => l[0] === '-').length
+      });
+    }
+    return out;
+  }
+
   function start(emit, opts) {
     const names = (opts && opts.names) || {};
+    const onLive = opts && opts.onLive;
+    const termSeq = { n: 0 };
     const t0 = Date.now();
     const agents = new Map();
     const tasks = new Map();
@@ -216,6 +317,10 @@
           });
         }
         if (a.state !== state || a.currentAction !== (action || undefined)) {
+          if (onLive) {
+            const entries = demoTerm(a, state, action, termSeq);
+            if (entries.length) onLive(entries);
+          }
           a.state = state;
           a.currentAction = action || undefined;
           a.stateSince = now;

@@ -197,6 +197,42 @@ test('modo navegador: token vira cookie, sem cookie é 401, mídia sem path trav
   }
 });
 
+test('modo navegador: eventos extras na conexão e envio nomeado (terminal ao vivo)', async () => {
+  let port = 0;
+  const web = createOfficeWeb({
+    mediaPath: path.join(__dirname, '..', 'media'),
+    viewToken: 'v',
+    port: () => port,
+    snapshot: () => ({ agents: [] }),
+    onConnect: () => [{ event: 'live', data: { type: 'liveInit', enabled: true, entries: [] } }]
+  });
+  const server = await startEventServer(47300 + Math.floor(Math.random() * 500), 's', () => undefined, false, web.handle);
+  port = server.port;
+  try {
+    const login = await request(port, 'GET', '/office?t=v');
+    const cookie = login.headers['set-cookie'][0].split(';')[0];
+    const data = await new Promise((resolve, reject) => {
+      const req = http.get({ host: '127.0.0.1', port, path: '/office/events', headers: { Cookie: cookie } }, (res) => {
+        let d = '';
+        res.on('data', (c) => {
+          d += c;
+          if (d.includes('liveInit') && !d.includes('"live"')) web.send('live', { type: 'live', entries: [{ id: 'l1' }] });
+          if (d.includes('"type":"live"')) {
+            req.destroy();
+            resolve(d);
+          }
+        });
+      });
+      req.on('error', reject);
+    });
+    assert.match(data, /event: live\ndata: \{"type":"liveInit","enabled":true,"entries":\[\]\}/);
+    assert.match(data, /event: live\ndata: \{"type":"live","entries":\[\{"id":"l1"\}\]\}/);
+  } finally {
+    web.dispose();
+    server.dispose();
+  }
+});
+
 test('script de hook: repassa a todas as janelas, limpa endpoint órfão e sai com 0', async () => {
   const home = tmp('ao-home-');
   fs.mkdirSync(path.join(home, 'endpoints'), { recursive: true });
