@@ -61,6 +61,9 @@
   let demo = null;
   let selected = null;
   const saved = (vscode && vscode.getState()) || {};
+  const liveTerm = { enabled: false, byAgent: new Map() };
+  let detailTab = saved.detailTab === 'term' ? 'term' : 'info';
+  let termFor = null;
 
   function emptySnapshot() {
     return { agents: [], tasks: [], activity: [], ghosts: [], sources: [], spark: [], host: {}, sessionActive: false };
@@ -88,6 +91,15 @@
       setDemo(!!msg.on);
     } else if (msg.type === 'focus' && msg.agentId) {
       select(msg.agentId, true);
+    } else if (msg.type === 'liveInit') {
+      liveTerm.enabled = !!msg.enabled;
+      for (const id of [...liveTerm.byAgent.keys()]) if (!id.startsWith('demo-')) liveTerm.byAgent.delete(id);
+      liveUpsert(msg.entries);
+      termFor = null;
+      renderDetail();
+    } else if (msg.type === 'live') {
+      liveUpsert(msg.entries);
+      onLiveEntries(msg.entries || []);
     }
   });
 
@@ -323,9 +335,20 @@
     const a = selected && agentById(selected);
     if (!a) {
       box.hidden = true;
+      box.classList.remove('wide');
+      termFor = null;
       return;
     }
     box.hidden = false;
+    const term = detailTab === 'term';
+    box.classList.toggle('wide', term);
+    // terminal aberto para o mesmo agente: só atualiza o cabeçalho (mantém a rolagem)
+    if (term && termFor === a.id && box.querySelector('.term')) {
+      renderDetailState(box, a);
+      renderDetailTabs(box, a);
+      return;
+    }
+    termFor = term ? a.id : null;
     box.textContent = '';
     const info = AO.sourceInfo(a.source);
 
@@ -344,11 +367,17 @@
     head.appendChild(close);
     box.appendChild(head);
 
-    const st = el('div', 'd-state ' + a.state);
-    st.style.setProperty('--dot', STATE_DOT[a.state] || '#888');
+    const st = el('div', 'd-state');
     st.appendChild(el('i'));
-    st.appendChild(el('span', null, (a.currentAction || STATE_LABEL[a.state] || a.state) + ' · há ' + fmtDur(Date.now() - (a.stateSince || a.lastEventAt))));
+    st.appendChild(el('span'));
     box.appendChild(st);
+    renderDetailState(box, a);
+    box.appendChild(el('div', 'd-tabs'));
+    renderDetailTabs(box, a);
+    if (term) {
+      box.appendChild(buildTerm(a));
+      return;
+    }
 
     const meta = el('dl', 'd-meta');
     const row = (k, v) => {
@@ -419,6 +448,159 @@
     }
   }
 
+  function renderDetailState(box, a) {
+    const st = box.querySelector('.d-state');
+    st.className = 'd-state ' + a.state;
+    st.style.setProperty('--dot', STATE_DOT[a.state] || '#888');
+    st.querySelector('span').textContent = (a.currentAction || STATE_LABEL[a.state] || a.state) + ' · há ' + fmtDur(Date.now() - (a.stateSince || a.lastEventAt));
+  }
+
+  function renderDetailTabs(box, a) {
+    const bar = box.querySelector('.d-tabs');
+    bar.textContent = '';
+    const n = liveTerm.enabled || demo ? (liveTerm.byAgent.get(a.id) || new Map()).size : 0;
+    for (const [id, label] of [
+      ['info', 'resumo'],
+      ['term', 'terminal']
+    ]) {
+      const b = el('button', 'ghost' + (detailTab === id ? ' on' : ''), label);
+      if (id === 'term' && n) b.appendChild(el('span', 'n', String(n)));
+      b.onclick = () => {
+        if (detailTab === id) return;
+        detailTab = id;
+        termFor = null;
+        if (vscode) vscode.setState(Object.assign(saved, { detailTab }));
+        renderDetail();
+      };
+      bar.appendChild(b);
+    }
+  }
+
+  // ── Terminal ao vivo ────────────────────────────────────────────
+  // Comandos, saída e diffs que a extensão já mandou MASCARADOS (segredos
+  // viram ‹oculto›). Aqui só se desenha; nada é lido de arquivo.
+  function liveUpsert(entries) {
+    for (const e of entries || []) {
+      let m = liveTerm.byAgent.get(e.agentId);
+      if (!m) liveTerm.byAgent.set(e.agentId, (m = new Map()));
+      m.set(e.id, e);
+      while (m.size > 120) m.delete(m.keys().next().value);
+    }
+  }
+
+  function onLiveEntries(entries) {
+    const box = $('#detail');
+    if (!termFor || box.hidden) {
+      if (selected && !box.hidden) {
+        const a = agentById(selected);
+        if (a && box.querySelector('.d-tabs')) renderDetailTabs(box, a);
+      }
+      return;
+    }
+    const mine = entries.filter((e) => e.agentId === termFor);
+    const a = agentById(termFor);
+    if (a) renderDetailTabs(box, a);
+    if (!mine.length) return;
+    const body = box.querySelector('.term-body');
+    if (!body) {
+      termFor = null;
+      renderDetail();
+      return;
+    }
+    const empty = body.querySelector('.term-empty');
+    if (empty) empty.remove();
+    const stick = body.scrollHeight - body.scrollTop - body.clientHeight < 40;
+    for (const e of mine) {
+      const node = termEntry(e);
+      const old = body.querySelector('[data-id="' + e.id + '"]');
+      if (old) old.replaceWith(node);
+      else body.appendChild(node);
+    }
+    while (body.children.length > 120) body.firstChild.remove();
+    if (stick) body.scrollTop = body.scrollHeight;
+  }
+
+  function buildTerm(a) {
+    const wrap = el('div', 'term');
+    if (!liveTerm.enabled && !demo) {
+      const off = el('div', 'term-off');
+      off.appendChild(el('b', null, 'Terminal ao vivo desligado'));
+      off.appendChild(
+        el('p', null, 'Mostra os comandos que este agente roda, a saída (testes, build) e os diffs de código. Chaves, tokens e dados pessoais viram “oculto”; .env, chaves e leituras de arquivo ficam de fora. Tudo nesta máquina, em memória.')
+      );
+      if (inEditor) {
+        const b = el('button', null, 'Ligar terminal ao vivo');
+        b.onclick = () => vscode.postMessage({ type: 'enableLive' });
+        off.appendChild(b);
+      } else {
+        off.appendChild(el('p', 'muted', 'Ligue pelo editor: Ctrl+Shift+P → Agent Office: Ligar/desligar terminal ao vivo.'));
+      }
+      wrap.appendChild(off);
+      return wrap;
+    }
+    const body = el('div', 'term-body');
+    const entries = [...(liveTerm.byAgent.get(a.id) || new Map()).values()];
+    if (!entries.length) body.appendChild(el('div', 'term-empty', 'Nada ainda. Os próximos comandos e edições deste agente aparecem aqui.'));
+    for (const e of entries) body.appendChild(termEntry(e));
+    wrap.appendChild(body);
+    requestAnimationFrame(() => (body.scrollTop = body.scrollHeight));
+    return wrap;
+  }
+
+  function termEntry(e) {
+    const box = el('div', 't-entry t-' + e.kind + ' ' + e.status);
+    box.dataset.id = e.id;
+    const head = el('div', 't-head');
+    head.appendChild(el('time', null, clock(e.at)));
+    if (e.kind === 'cmd') {
+      head.appendChild(el('span', 't-sig', '$'));
+      head.appendChild(maskedText('span', 't-title', e.title));
+      head.appendChild(el('span', 't-st', e.status === 'running' ? '…' : e.status === 'ok' ? '✓' : '✕' + (e.exitCode != null ? ' ' + e.exitCode : '')));
+    } else {
+      head.appendChild(el('span', 't-sig', e.created ? '+' : e.deleted ? '−' : '✎'));
+      head.appendChild(el('span', 't-title', e.title));
+      if (e.adds || e.dels) {
+        head.appendChild(el('span', 't-add', '+' + (e.adds || 0)));
+        head.appendChild(el('span', 't-del', '−' + (e.dels || 0)));
+      }
+      if (e.status === 'error') head.appendChild(el('span', 't-st', 'não aplicado'));
+      else if (e.deleted) head.appendChild(el('span', 't-st', 'apagado'));
+    }
+    if (e.masked) {
+      const m = el('span', 't-lock', e.masked + (e.masked > 1 ? ' ocultos' : ' oculto'));
+      m.title = 'Segredos trocados por “oculto” antes de chegar aqui';
+      head.appendChild(m);
+    }
+    box.appendChild(head);
+    if (e.hidden) {
+      box.appendChild(el('div', 't-note', e.hidden));
+      return box;
+    }
+    if (e.omitted && e.kind === 'cmd') box.appendChild(el('div', 't-note', '… ' + e.omitted + (e.omitted > 1 ? ' linhas acima' : ' linha acima')));
+    if (e.lines && e.lines.length) {
+      const pre = el('pre', 't-out');
+      for (const line of e.lines) {
+        const cls = e.kind === 'diff' ? (line.startsWith('@@') ? 'd-hunk' : line[0] === '+' ? 'd-add' : line[0] === '-' ? 'd-del' : 'd-ctx') : null;
+        pre.appendChild(maskedText('span', cls, line + '\n'));
+      }
+      box.appendChild(pre);
+    }
+    if (e.omitted && e.kind === 'diff') box.appendChild(el('div', 't-note', '… mais ' + e.omitted + (e.omitted > 1 ? ' linhas' : ' linha')));
+    return box;
+  }
+
+  /** Texto com os ‹oculto› destacados. */
+  function maskedText(tag, cls, text) {
+    const node = el(tag, cls);
+    String(text)
+      .split('‹oculto›')
+      .forEach((part, i) => {
+        if (i) node.appendChild(el('span', 't-mask', 'oculto'));
+        if (part) node.appendChild(document.createTextNode(part));
+      });
+    return node;
+  }
+
   function fmtNum(n) {
     if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
     if (n >= 1e4) return Math.round(n / 1e3) + 'k';
@@ -456,10 +638,18 @@
   // ── Demo ────────────────────────────────────────────────────────
   function setDemo(on) {
     if (on && !demo) {
-      demo = AO.demo.start((s) => apply(normalize(s)), { names: snapshot.names });
+      demo = AO.demo.start((s) => apply(normalize(s)), {
+        names: snapshot.names,
+        onLive: (entries) => {
+          liveUpsert(entries);
+          onLiveEntries(entries);
+        }
+      });
     } else if (!on && demo) {
       demo.stop();
       demo = null;
+      for (const id of [...liveTerm.byAgent.keys()]) if (id.startsWith('demo-')) liveTerm.byAgent.delete(id);
+      termFor = null;
       apply(view(live));
     }
     $('#btn-demo').classList.toggle('on', !!demo);

@@ -3,6 +3,22 @@
 Formato: cada versão tem uma seção `## [x.y.z] — data`. O workflow de
 release usa a seção da versão como texto da Release no GitHub.
 
+## [0.4.0] — 2026-09-25
+
+**Terminal ao vivo** (opt-in): no painel de cada agente, a aba **terminal** mostra os comandos que ele roda, a saída (testes, build) e os diffs de código, sem mostrar chaves nem dados sensíveis.
+
+- Liga pelo botão na própria aba ou por `Agent Office: Ligar/desligar terminal ao vivo`, com confirmação. Começa desligado.
+- Claude Code (Bash, Edit, MultiEdit, Write) e Codex (shell/exec_command, apply_patch). Leituras (Read, Grep, WebFetch) nunca aparecem.
+- Comando com ✓/✕ e código de saída; saída com as últimas 60 linhas; diff colorido com +/−.
+- Também no modo navegador e na **demo** (com terminal fictício, bom para gravar).
+
+### Privacidade
+- **Mascaramento antes de sair da extensão**: tokens com formato conhecido (Anthropic, OpenAI, GitHub, AWS, Google, Slack, Stripe, Supabase, npm…), JWT, chaves privadas, `SENHA=valor`, `"apiKey": "…"`, `Authorization: …`, URL com senha, CPF/CNPJ, cartão, e-mail e strings longas com cara de aleatórias viram `‹oculto›`. Cada entrada mostra quantos itens foram ocultados.
+- **Arquivos sensíveis** (`.env*`, chaves, credenciais, `.ssh/`, `.aws/`, tfvars…) nunca têm conteúdo mostrado. Dá para acrescentar outros em `agentOffice.liveTerminalHide`.
+- **Comandos que leem arquivo inteiro ou imprimem segredo** (`cat`, `head`, `rg`, `env`, `printenv`, `gh auth token`, `vercel env`…) mostram só o comando.
+- Comando multilinha (heredoc) mostra só a primeira linha. Tudo em memória, algumas dezenas de entradas por agente.
+- O mascaramento pega os formatos comuns, mas não é infalível: uma senha que parece texto comum pode passar. Por isso a leitura bruta de arquivos fica de fora.
+
 ## [0.3.1] — 2026-09-25
 
 Nome da sessão principal (ex.: **Sora**) mais confiável.

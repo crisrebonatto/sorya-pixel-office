@@ -188,4 +188,40 @@ export interface NormalizedEvent {
   needsApproval?: boolean; // ferramenta costuma pedir permissão
   at: number;
   replay?: boolean; // reconstrução do histórico (não notifica, não anima)
+  /**
+   * Conteúdo BRUTO para o terminal ao vivo (só quando ligado). Nunca vai
+   * para o estado nem para a UI assim: o LiveLog mascara antes.
+   */
+  live?: LiveDetail;
+}
+
+export type LiveDetail =
+  | { t: 'cmd'; command: string }
+  | { t: 'out'; output: string; exitCode?: number; isError?: boolean }
+  | { t: 'diff'; files: LiveFileDiff[]; pending?: boolean };
+
+export interface LiveFileDiff {
+  path: string; // como a ferramenta informou (absoluto ou relativo)
+  lines: string[]; // unificado: ' ', '+', '-', '@@'
+  created?: boolean;
+  deleted?: boolean;
+}
+
+/** Linha do terminal ao vivo, já mascarada. */
+export interface LiveEntry {
+  id: string;
+  at: number;
+  agentId: string;
+  kind: 'cmd' | 'diff';
+  title: string; // "npm test" | "src/pix.ts"
+  lines: string[];
+  status: 'running' | 'ok' | 'error';
+  exitCode?: number;
+  hidden?: string; // por que o conteúdo não aparece
+  masked: number; // quantos segredos foram trocados por ‹oculto›
+  omitted: number; // linhas cortadas
+  adds?: number;
+  dels?: number;
+  created?: boolean;
+  deleted?: boolean;
 }

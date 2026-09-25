@@ -4,11 +4,12 @@ import * as vscode from 'vscode';
 import { getOrCreateToken, VIEW_TOKEN_KEY } from './server/auth';
 import { EventServer, relayEvent, startEventServer } from './server/httpServer';
 import { createOfficeWeb, OfficeWeb } from './server/officeWeb';
+import { LiveLog } from './core/live';
 import { installHookScript, otherEndpoints, removeEndpoint, writeEndpoint } from './server/discovery';
 import { StateStore } from './core/stateStore';
 import { EventRouter } from './core/eventRouter';
 import { NameDirectory } from './core/names';
-import { Agent, AgentSource, NormalizedEvent, SOURCE_LABEL } from './core/types';
+import { Agent, AgentSource, LiveEntry, NormalizedEvent, OfficeSnapshot, SOURCE_LABEL } from './core/types';
 import { normalizeHook, parseSource } from './adapters/hooks';
 import { runCodexTask, CodexRun } from './adapters/codex';
 import { ClaudeWatcher, claudeHome } from './watchers/claude';
@@ -76,12 +77,34 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const extras = () => ({ names: names.personas(), workspace: workspaceProjects() });
   const decorated = (snap = store.snapshot()) => Object.assign({}, snap, extras());
 
+  // Terminal ao vivo (opt-in): comandos, saída e diffs, já mascarados.
+  const liveLog = new LiveLog();
+  liveLog.setHidden(config().get<string[]>('liveTerminalHide', []));
+  liveLog.setEnabled(config().get<boolean>('liveTerminal', false));
+  const liveInit = () => ({ type: 'liveInit', enabled: liveLog.enabled, entries: liveLog.snapshot() });
+  let postLive: (msg: unknown) => void = () => undefined;
+  const pendingLive = new Map<string, LiveEntry>();
+  let liveTimer: NodeJS.Timeout | undefined;
+  liveLog.on('entry', (entry: LiveEntry) => {
+    pendingLive.set(entry.id, entry);
+    if (liveTimer) return;
+    liveTimer = setTimeout(() => {
+      liveTimer = undefined;
+      const msg = { type: 'live', entries: [...pendingLive.values()] };
+      pendingLive.clear();
+      postLive(msg);
+    }, 150);
+  });
+  disposers.push(() => liveTimer && clearTimeout(liveTimer));
+  store.on('change', (snap: OfficeSnapshot) => liveLog.retain(new Set(snap.agents.map((a) => a.id))));
+
   // Modo navegador: o mesmo escritório em http://127.0.0.1:<porta>/office
   const officeWeb = createOfficeWeb({
     mediaPath: path.join(context.extensionPath, 'media'),
     viewToken: await getOrCreateToken(context, VIEW_TOKEN_KEY),
     port: () => server?.port ?? preferredPort,
     snapshot: () => decorated(),
+    onConnect: () => [{ event: 'live', data: liveInit() }],
     onAction: (msg) => {
       if (msg.type === 'clearFinished') store.clearFinished();
     }
@@ -133,7 +156,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   // ── Watchers passivos (zero configuração) ─────────────────────────
-  const emit = (events: NormalizedEvent[]) => router.route(events);
+  const emit = (events: NormalizedEvent[]) => {
+    router.route(events);
+    // só entra no terminal quem está no escritório (histórico velho fica de fora)
+    if (liveLog.enabled) for (const e of events) if (e.live && store.has(e.agentId)) liveLog.ingest(e);
+  };
   const watchers: Array<{ id: AgentSource; path: () => string; w: { start(): void; stop(): void; status(): { found: boolean; tracked: number; lastSeen: number } } }> = [];
   const sources = config().get<Record<string, boolean>>('sources', {});
   const enabled = (id: string) => sources[id] !== false;
@@ -188,8 +215,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     (msg) => {
       if (msg.type === 'clearFinished') store.clearFinished();
       if (msg.type === 'openBrowser') void openInBrowser();
+      if (msg.type === 'enableLive') void enableLive();
+      if (msg.type === 'ready') provider.post(liveInit());
     }
   );
+  postLive = (msg) => {
+    provider.post(msg);
+    officeWeb.send('live', msg);
+  };
+  const enableLive = async () => {
+    const pick = await vscode.window.showWarningMessage(
+      'Ligar o terminal ao vivo?',
+      {
+        modal: true,
+        detail:
+          'Mostra no escritório os comandos que os agentes rodam, a saída (testes, build) e os diffs de código.\n\n' +
+          'Chaves, tokens e dados pessoais em formatos comuns viram ‹oculto›. Arquivos sensíveis (.env, chaves, credenciais) e leituras de arquivo ficam de fora.\n\n' +
+          'Tudo fica nesta máquina, em memória. O mascaramento pega os formatos comuns, mas não é infalível.'
+      },
+      'Ligar'
+    );
+    if (pick === 'Ligar') await config().update('liveTerminal', true, vscode.ConfigurationTarget.Global);
+  };
   context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => store.refresh()));
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(OfficeViewProvider.viewType, provider, { webviewOptions: { retainContextWhenHidden: true } })
@@ -304,6 +351,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     vscode.commands.registerCommand('agentOffice.clearBoard', () => store.clearFinished()),
 
+    vscode.commands.registerCommand('agentOffice.toggleLiveTerminal', async () => {
+      if (liveLog.enabled) await config().update('liveTerminal', false, vscode.ConfigurationTarget.Global);
+      else await enableLive();
+    }),
+
     vscode.commands.registerCommand('agentOffice.reloadNames', () => {
       names.load();
       store.renameAll();
@@ -339,6 +391,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       }
       if (e.affectsConfiguration('agentOffice.idleTimeoutMinutes')) {
         store.setIdleTimeout(clamp(config().get<number>('idleTimeoutMinutes', 30), 2, 24 * 60) * 60 * 1000);
+      }
+      if (e.affectsConfiguration('agentOffice.liveTerminalHide')) liveLog.setHidden(config().get<string[]>('liveTerminalHide', []));
+      if (e.affectsConfiguration('agentOffice.liveTerminal')) {
+        liveLog.setEnabled(config().get<boolean>('liveTerminal', false));
+        postLive(liveInit());
       }
     })
   );
