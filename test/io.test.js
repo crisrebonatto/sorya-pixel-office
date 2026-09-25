@@ -225,7 +225,7 @@ test('script de hook: repassa a todas as janelas, limpa endpoint órfão e sai c
 });
 
 test('projeto: worktrees contam como o repositório de origem', () => {
-  const { projectOf } = require('../out/watchers/tailer');
+  const { projectOf, projectRootOf, seenCwds } = require('../out/watchers/tailer');
   const dir = tmp('ao-proj-');
   const repo = path.join(dir, 'sorya-guardian');
   const wt = path.join(dir, 'wt-gemini');
@@ -238,5 +238,9 @@ test('projeto: worktrees contam como o repositório de origem', () => {
   assert.equal(projectOf('/home/u/sorya-nexo/.claude/worktrees/agent-1/packages/api'), 'sorya-nexo');
   assert.equal(projectOf('E:\\dev\\sorya-control\\'), 'sorya-control');
   assert.equal(projectOf(''), undefined);
+  // pastas vistas viram lugares onde procurar fichas (.claude/agents do projeto)
+  assert.ok(seenCwds().includes(wt));
+  assert.equal(projectRootOf('E:\\dev\\sorya-nexo\\.claude\\worktrees\\agent-a4a9'), 'E:\\dev\\sorya-nexo');
+  assert.equal(projectRootOf('/home/u/sorya-dmi'), '/home/u/sorya-dmi');
   fs.rmSync(dir, { recursive: true, force: true });
 });

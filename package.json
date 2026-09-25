@@ -2,7 +2,7 @@
   "name": "agent-office",
   "displayName": "Agent Office",
   "description": "Dev hub em pixel art: cada agente de IA (Claude Code, Codex, Gemini CLI, Antigravity, Cursor, Copilot) trabalhando na própria mesa, com kanban e feed em tempo real.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "publisher": "sorya",
   "private": true,
   "license": "MIT",

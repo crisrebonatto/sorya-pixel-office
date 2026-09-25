@@ -259,6 +259,17 @@ export function projectOf(cwd: unknown): string | undefined {
   return p;
 }
 
+/** Pastas de trabalho vistas nos registros (para achar fichas de agentes do projeto). */
+export function seenCwds(): string[] {
+  return [...projectCache.keys()];
+}
+
+/** Raiz do projeto: tira o sufixo `.claude/worktrees/<id>` de worktree isolado. */
+export function projectRootOf(cwd: string): string {
+  const m = /^(.*?)[\\/]\.claude[\\/]worktrees[\\/]/.exec(cwd);
+  return m ? m[1] : cwd;
+}
+
 function resolveProject(cwd: string): string | undefined {
   const norm = cwd.replace(/\\/g, '/').replace(/\/+$/, '');
   const claudeWt = /^(.*)\/\.claude\/worktrees\/[^/]+(?:\/|$)/.exec(norm);

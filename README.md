@@ -56,9 +56,10 @@ description: Rick — rick-construtor (antes sorya-fullstack-builder). Constrói
 ---
 ```
 
-- O escritório lê `~/.claude/agents/`, `.claude/agents/` e `.agents/` do workspace, mais as pastas extras de `agentOffice.agentDirs`.
+- O escritório lê `~/.claude/agents/`, `.claude/agents/` e `.agents/` do workspace, o `.claude/agents/` de cada projeto em que um agente está trabalhando e as pastas extras de `agentOffice.agentDirs`.
 - Da descrição sai a persona: `rick-construtor` vira **Rick**, e o slug antigo `sorya-fullstack-builder` também.
-- A ficha que se declara **"sessão principal"** (ex.: Sora, a orquestradora) dá nome às sessões do Claude Code.
+- A ficha que se declara **"sessão principal"** (ex.: Sora, a orquestradora) dá nome às sessões do Claude Code. Se outras fichas só citam a sessão principal ("chamado pela sessão principal"), vence a que se declara principal.
+- Na dúvida, rode **`Agent Office: Recarregar nomes dos agentes`**: ele diz quantas personas achou e quem ficou como sessão principal.
 - Sem ficha, usa o primeiro pedaço do slug: `heitor-debug` vira **Heitor**.
 - Para forçar um nome, use `agentOffice.names`:
 
@@ -73,7 +74,7 @@ description: Rick — rick-construtor (antes sorya-fullstack-builder). Constrói
    - **Pela interface** (VS Code, Antigravity ou Cursor): **Extensions** → `…` → **Install from VSIX…** → escolha o arquivo baixado.
    - **Pelo terminal**, passando o caminho do arquivo (o comando procura na pasta atual):
      ```powershell
-     code --install-extension "$env:USERPROFILE\Downloads\agent-office-v0.3.0.vsix"
+     code --install-extension "$env:USERPROFILE\Downloads\agent-office-v0.3.1.vsix"
      ```
      No Antigravity e no Cursor, troque `code` por `antigravity` ou `cursor`.
 3. Recarregue a janela. A extensão aparece em **Extensions → Installed** e o ícone de prédio surge na Activity Bar.
@@ -134,7 +135,7 @@ Interação:
 ```sh
 npm install
 npm run compile     # TypeScript → out/
-npm test            # 29 testes (parsers, hooks, store, nomes, redação, I/O)
+npm test            # 30 testes (parsers, hooks, store, nomes, redação, I/O)
 npm run preview     # gera dev/preview.html (webview real + demo) para abrir no navegador
 ```
 

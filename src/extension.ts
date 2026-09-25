@@ -12,7 +12,7 @@ import { Agent, AgentSource, NormalizedEvent, SOURCE_LABEL } from './core/types'
 import { normalizeHook, parseSource } from './adapters/hooks';
 import { runCodexTask, CodexRun } from './adapters/codex';
 import { ClaudeWatcher, claudeHome } from './watchers/claude';
-import { projectOf } from './watchers/tailer';
+import { projectOf, projectRootOf, seenCwds } from './watchers/tailer';
 import { CodexWatcher, codexHome } from './watchers/codex';
 import { GeminiWatcher, geminiHome } from './watchers/gemini';
 import { AntigravityWatcher, antigravityRoots } from './watchers/antigravity';
@@ -162,13 +162,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const sourceTimer = setInterval(refreshSources, 10000);
   disposers.push(() => clearInterval(sourceTimer));
 
-  // fichas de agentes mudam raramente: relê a cada minuto
-  const namesTimer = setInterval(() => {
-    const before = JSON.stringify(names.personas());
+  // Fichas de agentes: relê a cada minuto e logo que aparece um projeto
+  // novo nos registros (as fichas podem estar no .claude/agents dele).
+  const namesSignature = () => JSON.stringify([names.personas(), names.mainName()]);
+  const reloadNames = () => {
+    const before = namesSignature();
     names.load();
-    if (JSON.stringify(names.personas()) !== before) store.renameAll();
-  }, 60000);
-  disposers.push(() => clearInterval(namesTimer));
+    if (namesSignature() !== before) store.renameAll();
+  };
+  let cwdCount = 0;
+  const namesTimer = setInterval(reloadNames, 60000);
+  const cwdTimer = setInterval(() => {
+    const n = seenCwds().length;
+    if (n === cwdCount) return;
+    cwdCount = n;
+    reloadNames();
+  }, 5000);
+  disposers.push(() => clearInterval(namesTimer), () => clearInterval(cwdTimer));
 
   // ── Webview ───────────────────────────────────────────────────────
   const provider = new OfficeViewProvider(
@@ -298,7 +308,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       names.load();
       store.renameAll();
       const n = Object.keys(names.personas()).length;
-      void vscode.window.showInformationMessage(`Agent Office: ${n} persona(s) carregada(s) das fichas de agentes.`);
+      const main = names.mainName();
+      const msg = !n
+        ? 'nenhuma ficha de agente encontrada em ~/.claude/agents, no .claude/agents dos projetos ou em agentOffice.agentDirs.'
+        : `${n} persona(s) carregada(s). ` +
+          (main
+            ? `Sessão principal: ${main}.`
+            : 'Nenhuma ficha se declara claramente a "sessão principal"; para nomear, use "agentOffice.names": { "claude": "Sora" }.');
+      void vscode.window.showInformationMessage('Agent Office: ' + msg);
     }),
 
     vscode.commands.registerCommand('agentOffice.delegateToCodex', async () => {
@@ -354,7 +371,12 @@ function agentDirs(): string[] {
   }
   const extra = vscode.workspace.getConfiguration('agentOffice').get<string[]>('agentDirs', []);
   for (const d of extra) dirs.push(d.replace(/^~(?=$|[\\/])/, os.homedir()));
-  return dirs;
+  // projetos onde os agentes estão trabalhando (vistos nos registros)
+  for (const cwd of seenCwds().slice(0, 80)) {
+    const root = projectRootOf(cwd);
+    dirs.push(path.join(root, '.claude', 'agents'));
+  }
+  return [...new Set(dirs)];
 }
 
 function clamp(n: number, min: number, max: number): number {

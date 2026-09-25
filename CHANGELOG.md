@@ -3,6 +3,14 @@
 Formato: cada versão tem uma seção `## [x.y.z] — data`. O workflow de
 release usa a seção da versão como texto da Release no GitHub.
 
+## [0.3.1] — 2026-09-25
+
+Nome da sessão principal (ex.: **Sora**) mais confiável.
+
+- Quando várias fichas citam a sessão principal ("chamado pela sessão principal"), vence a que se declara principal: diz que é a sessão principal, que não é para ser chamada como subagente ou tem "orquestrador" no nome. Antes, qualquer citação empatava e a plaquinha ficava "Claude".
+- As fichas agora também são procuradas no `.claude/agents` de cada projeto em que os agentes estão trabalhando, e não só no projeto aberto na janela.
+- `Agent Office: Recarregar nomes dos agentes` diz quantas personas achou e quem é a sessão principal, ou por que não achou.
+
 ## [0.3.0] — 2026-09-25
 
 **Modo navegador**: o escritório também abre fora do editor, em `http://127.0.0.1:4517/office`.
