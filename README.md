@@ -64,6 +64,10 @@ description: Rick — rick-construtor (antes sorya-fullstack-builder). Constrói
 "agentOffice.names": { "claude": "Sora", "codex": "Atlas", "tome-qa": "Tomé" }
 ```
 
+## Instalar
+
+Baixe o `.vsix` da [última Release](https://github.com/crisrebonatto/sorya-pixel-office/releases/latest) e instale em **Extensions → `…` → Install from VSIX…** (VS Code, Antigravity ou Cursor), ou via `code --install-extension agent-office-v0.2.0.vsix`.
+
 ## Usar
 
 1. Instale a extensão (ou abra esta pasta no VS Code e pressione **F5**).
@@ -109,4 +113,11 @@ npm run preview     # gera dev/preview.html (webview real + demo) para abrir no 
 - `node dev/build-preview.js --snapshot` renderiza esse snapshot.
 - `node dev/shot.js dev/preview.html saida.png` tira screenshot via Playwright.
 
-Arquitetura, decisões e formatos lidos: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+Arquitetura, decisões e formatos lidos: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Histórico de versões: [`CHANGELOG.md`](CHANGELOG.md).
+
+### Lançar uma versão
+
+1. Atualize `version` no `package.json` e crie a seção `## [x.y.z]` no `CHANGELOG.md`.
+2. `git tag vx.y.z && git push origin vx.y.z`.
+
+O workflow [`release.yml`](.github/workflows/release.yml) roda os testes, empacota o `.vsix` e publica a Release no GitHub com as notas do CHANGELOG.

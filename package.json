@@ -6,6 +6,11 @@
   "publisher": "sorya",
   "private": true,
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/crisrebonatto/sorya-pixel-office"
+  },
+  "homepage": "https://github.com/crisrebonatto/sorya-pixel-office#readme",
   "engines": {
     "vscode": "^1.85.0"
   },

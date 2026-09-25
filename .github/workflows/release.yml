@@ -1,0 +1,64 @@
+# Publica uma Release a cada tag de versão (vX.Y.Z):
+#   1. compila e roda os testes
+#   2. confere que a tag bate com a versão do package.json
+#   3. empacota a extensão (.vsix)
+#   4. cria a Release com a seção da versão do CHANGELOG.md + o .vsix anexado
+#
+# Para lançar: atualize "version" no package.json e a seção no CHANGELOG.md,
+# depois `git tag vX.Y.Z && git push origin vX.Y.Z`.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Testes
+        run: npm test
+
+      - name: Tag confere com o package.json
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG="$(node -p "require('./package.json').version")"
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::tag v$TAG diferente da versão do package.json ($PKG)"
+            exit 1
+          fi
+
+      - name: Empacotar .vsix
+        run: npx --yes @vscode/vsce@4 package --out "agent-office-${GITHUB_REF_NAME}.vsix"
+
+      - name: Notas da versão (CHANGELOG.md)
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          awk -v v="$VER" '/^## \[/{ p = index($0, "[" v "]") > 0; next } p' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then echo "Veja o CHANGELOG.md." > notes.md; fi
+          cat >> notes.md <<'NOTES'
+
+          ### Como instalar
+          1. Baixe o arquivo `.vsix` abaixo.
+          2. No VS Code / Antigravity / Cursor: **Extensions** → `…` → **Install from VSIX…** (ou `code --install-extension agent-office-*.vsix`).
+          3. Abra o ícone de prédio na Activity Bar ou rode **Agent Office: Abrir escritório em painel**. Sem agentes rodando? Clique em **demo**.
+          NOTES
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Agent Office ${{ github.ref_name }} — Sorya Dev Hub
+          body_path: notes.md
+          files: agent-office-*.vsix
+          make_latest: true
