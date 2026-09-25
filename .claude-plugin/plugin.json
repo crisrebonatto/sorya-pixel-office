@@ -1,0 +1,8 @@
+{
+  "name": "agent-office",
+  "version": "0.2.0",
+  "description": "Hooks do Agent Office: mostra no escritório em pixel art, ao vivo, o que cada sessão e subagente do Claude Code está fazendo (inclusive pedidos de permissão).",
+  "author": {
+    "name": "Sorya"
+  }
+}

@@ -1,0 +1,92 @@
+# Publica uma Release por versão (uma vez só):
+#   - push de tag vX.Y.Z, ou
+#   - push em main / claude/** que mude package.json, CHANGELOG.md ou este
+#     arquivo: se a tag v<versão do package.json> ainda não existe, a Release
+#     é criada (com a tag) apontando para o commit enviado.
+# Passos: testes → confere versão → empacota o .vsix → Release com a seção
+# da versão no CHANGELOG.md + o .vsix anexado.
+#
+# Para lançar: atualize "version" no package.json e crie a seção
+# "## [x.y.z]" no CHANGELOG.md. O push faz o resto.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+    branches: ['main', 'claude/**']
+    paths: ['package.json', 'CHANGELOG.md', '.github/workflows/release.yml']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Versão e tag
+        id: meta
+        run: |
+          VER="$(node -p "require('./package.json').version")"
+          TAG="v$VER"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            if [ "$GITHUB_REF_NAME" != "$TAG" ]; then
+              echo "::error::tag $GITHUB_REF_NAME diferente da versão do package.json ($TAG)"
+              exit 1
+            fi
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          elif git ls-remote --exit-code --tags origin "refs/tags/$TAG" > /dev/null; then
+            echo "A Release $TAG já existe — nada a fazer."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.meta.outputs.skip != 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Instalar e testar
+        if: steps.meta.outputs.skip != 'true'
+        run: |
+          npm ci
+          npm test
+
+      - name: Empacotar .vsix
+        if: steps.meta.outputs.skip != 'true'
+        run: npx --yes @vscode/vsce@4 package --out "agent-office-${{ steps.meta.outputs.tag }}.vsix"
+
+      - name: Notas da versão (CHANGELOG.md)
+        if: steps.meta.outputs.skip != 'true'
+        run: |
+          VER="${{ steps.meta.outputs.version }}"
+          awk -v v="$VER" '/^## \[/{ p = index($0, "[" v "]") > 0; next } p' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then echo "Veja o CHANGELOG.md." > notes.md; fi
+          cat >> notes.md <<'NOTES'
+
+          ### Como instalar
+          1. Baixe o arquivo `.vsix` abaixo.
+          2. No VS Code / Antigravity / Cursor: **Extensions** → `…` → **Install from VSIX…** (ou `code --install-extension agent-office-*.vsix`).
+          3. Abra o ícone de prédio na Activity Bar ou rode **Agent Office: Abrir escritório em painel**. Sem agentes rodando? Clique em **demo**.
+          NOTES
+
+      - uses: softprops/action-gh-release@v2
+        if: steps.meta.outputs.skip != 'true'
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Agent Office ${{ steps.meta.outputs.tag }} — Sorya Dev Hub
+          body_path: notes.md
+          files: agent-office-*.vsix
+          make_latest: true

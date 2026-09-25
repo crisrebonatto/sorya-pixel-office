@@ -1,0 +1,5 @@
+node_modules/
+out/
+*.vsix
+dev/preview.html
+dev/snapshot.json

@@ -1,0 +1,184 @@
+{
+  "name": "agent-office",
+  "displayName": "Agent Office",
+  "description": "Dev hub em pixel art: cada agente de IA (Claude Code, Codex, Gemini CLI, Antigravity, Cursor, Copilot) trabalhando na própria mesa, com kanban e feed em tempo real.",
+  "version": "0.2.0",
+  "publisher": "sorya",
+  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/crisrebonatto/sorya-pixel-office"
+  },
+  "homepage": "https://github.com/crisrebonatto/sorya-pixel-office#readme",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "agentOffice",
+          "title": "Agent Office",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "agentOffice": [
+        {
+          "type": "webview",
+          "id": "agentOffice.office",
+          "name": "Escritório"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "agentOffice.open",
+        "title": "Agent Office: Abrir escritório em painel",
+        "icon": "$(organization)"
+      },
+      {
+        "command": "agentOffice.demo",
+        "title": "Agent Office: Modo demonstração"
+      },
+      {
+        "command": "agentOffice.installHooks",
+        "title": "Agent Office: Instalar hooks (precisão ao vivo)"
+      },
+      {
+        "command": "agentOffice.uninstallHooks",
+        "title": "Agent Office: Remover hooks"
+      },
+      {
+        "command": "agentOffice.reloadNames",
+        "title": "Agent Office: Recarregar nomes dos agentes"
+      },
+      {
+        "command": "agentOffice.clearBoard",
+        "title": "Agent Office: Limpar colunas Feito/Falhou"
+      },
+      {
+        "command": "agentOffice.delegateToCodex",
+        "title": "Agent Office: Delegar tarefa ao Codex"
+      },
+      {
+        "command": "agentOffice.showStatus",
+        "title": "Agent Office: Status do monitoramento"
+      }
+    ],
+    "configuration": {
+      "title": "Agent Office",
+      "properties": {
+        "agentOffice.names": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "string"
+          },
+          "markdownDescription": "Nome exibido na plaquinha em cima da cabeça. Chave = slug do agente (`rick-construtor`) ou fonte (`claude`, `codex`, `gemini`, `antigravity`). Ex.: `{ \"claude\": \"Sora\", \"codex\": \"Atlas\" }`. Sem isso, a persona vem da ficha do agente (`Rick — rick-construtor…`)."
+        },
+        "agentOffice.notifyOnWaiting": {
+          "type": "boolean",
+          "default": true,
+          "description": "Notificação nativa quando um agente precisa de aprovação ou resposta sua."
+        },
+        "agentOffice.idleTimeoutMinutes": {
+          "type": "number",
+          "default": 30,
+          "minimum": 2,
+          "description": "Depois de quantos minutos ociosa uma sessão sai do escritório."
+        },
+        "agentOffice.desks": {
+          "type": "number",
+          "default": 12,
+          "minimum": 4,
+          "maximum": 12,
+          "description": "Quantas mesas do escritório podem ser ocupadas (o mapa tem 12). Agentes além disso ficam no lounge."
+        },
+        "agentOffice.sources": {
+          "type": "object",
+          "default": {
+            "claude": true,
+            "codex": true,
+            "gemini": true,
+            "antigravity": true
+          },
+          "properties": {
+            "claude": {
+              "type": "boolean"
+            },
+            "codex": {
+              "type": "boolean"
+            },
+            "gemini": {
+              "type": "boolean"
+            },
+            "antigravity": {
+              "type": "boolean"
+            }
+          },
+          "description": "Quais registros locais monitorar (recarregue a janela após mudar)."
+        },
+        "agentOffice.agentDirs": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "markdownDescription": "Pastas extras com fichas de agentes (`*.md` com frontmatter `name`/`description`). Já lidas por padrão: `~/.claude/agents` e `.claude/agents` do workspace."
+        },
+        "agentOffice.port": {
+          "type": "number",
+          "default": 4517,
+          "description": "Porta preferida do servidor local de eventos. Se ocupada, a extensão sobe na próxima livre."
+        },
+        "agentOffice.codexCommand": {
+          "type": "string",
+          "default": "codex",
+          "description": "Binário do Codex CLI usado pelo adaptador de delegação."
+        }
+      }
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "agentOffice.open",
+          "when": "view == agentOffice.office",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "npm run compile && node --test \"test/*.test.js\"",
+    "preview": "node dev/build-preview.js --demo",
+    "vscode:prepublish": "npm run compile"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.4.0"
+  },
+  "keywords": [
+    "claude code",
+    "codex",
+    "gemini",
+    "antigravity",
+    "agents",
+    "pixel art",
+    "kanban",
+    "monitor"
+  ]
+}
