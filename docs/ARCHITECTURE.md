@@ -39,8 +39,10 @@ Você continua trabalhando onde já trabalha. O escritório apenas observa.
  │ NameDirectory (fichas .md → personas)                               ▼     │
  │                                                    postMessage (≤ 8/s)    │
  └──────────────────────────────────────────────────────────────┬───────────┘
-                                                                ▼
-                 Webview: escritório em canvas + kanban + feed + detalhe
+                                         ┌──────────────────────┴───────────┐
+                                         ▼                                  ▼
+          Webview: escritório em canvas + kanban      Navegador: GET /office (mesma UI)
+                   + feed + detalhe                   estado por SSE em /office/events
 ```
 
 | Componente | Responsabilidade |
@@ -51,6 +53,7 @@ Você continua trabalhando onde já trabalha. O escritório apenas observa.
 | `core/stateStore.ts` | Agentes, mesas fixas, tarefas, feed, deduplicação hook × registro, heurística de espera, limpeza por inatividade. |
 | `core/names.ts` | Personas a partir das fichas de agentes; overrides nas configurações. |
 | `server/*` | Servidor local (token, `Host` local, repasse entre janelas), descoberta por janela e redação. |
+| `server/officeWeb.ts` | Modo navegador: serve a mesma UI em `/office`, estado ao vivo por Server-Sent Events, token de visualização que vira cookie. |
 | `hooks/installer.ts` | Instala e remove hooks em Claude, Codex, Gemini, Cursor e Copilot. |
 | `media/pixel/*` | Engine de pixel art procedural: personagens, mobília, mapa, cena. |
 
@@ -134,6 +137,7 @@ Ver `src/core/types.ts`: `Agent`, `Task`, `Activity`, `OfficeSnapshot`, `Normali
 - **Renderização.** Buffer nativo 544×304 com escala *sharp-bilinear* (vizinho mais próximo até k inteiro, bilinear até o alvo), então fica nítido em qualquer tamanho e DPI. Os textos são desenhados em alta resolução por cima. A iluminação segue a hora real e a ocupação (escritório vazio fica na penumbra), e o loop roda a 30 fps, pausando com a aba oculta.
 - **Layout.** Escritório em cima, kanban embaixo (divisor arrastável). O feed lateral só aparece quando não rouba tamanho do escritório. Em painel estreito a câmera aproxima nas mesas (arrastar move).
 - **Acessibilidade.** `prefers-reduced-motion` desliga caminhadas (teletransporta), piscadas e animações, mantendo estado por cor e ícone.
+- **Modo navegador.** O mesmo `office.html` é servido em `http://127.0.0.1:<porta>/office`. O `media/browser.js` faz o papel da API da webview: recebe o snapshot por SSE, guarda preferências em `localStorage` e manda ações (limpar o quadro) por `POST /office/action`. O código da UI é um só nos dois lugares.
 
 ---
 
@@ -142,6 +146,11 @@ Ver `src/core/types.ts`: `Agent`, `Task`, `Activity`, `OfficeSnapshot`, `Normali
 - Servidor com bind **sempre** em `127.0.0.1`. Token por janela, com comparação em tempo constante. Só aceita `Host` local, contra DNS rebinding.
 - **Redação** (`server/redact.ts`) antes de qualquer estado: basename de arquivo, binário + subcomando simples, host de URL. Nunca conteúdo de edição, texto de busca ou argumentos.
 - Webview com CSP sem `connect-src` e scripts só com nonce.
+- Modo navegador:
+  - Token de **visualização** separado do token dos hooks. `/office?t=<token>` grava um cookie `HttpOnly; SameSite=Strict` e redireciona para `/office`, então o token não fica na barra de endereço, nem em print ou gravação.
+  - Sem o cookie, só os arquivos estáticos da UI respondem (código da extensão, sem dados).
+  - Ações exigem o cabeçalho `X-Agent-Office`, que força preflight de CORS (nunca respondido): outra origem não dispara ações.
+  - CSP com `connect-src 'self'`, `X-Frame-Options: DENY`, `Cross-Origin-Opener-Policy`, e a UI só aceita mensagens da própria página.
 - Nada persistido além do arquivo de endpoint (`0600`, apagado ao fechar).
 
 ---

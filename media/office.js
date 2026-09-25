@@ -4,7 +4,9 @@
 (function () {
   'use strict';
   const AO = window.AO;
-  const vscode = typeof acquireVsCodeApi === 'function' ? acquireVsCodeApi() : null;
+  // Dentro do editor: API da webview. No navegador: ponte de browser.js.
+  const inEditor = typeof acquireVsCodeApi === 'function';
+  const vscode = inEditor ? acquireVsCodeApi() : window.__AO_HOST || null;
 
   const $ = (sel, root) => (root || document).querySelector(sel);
   const el = (tag, cls, text) => {
@@ -75,11 +77,13 @@
 
   // ── Mensagens da extensão ───────────────────────────────────────
   window.addEventListener('message', (event) => {
+    // no navegador, só a própria página (browser.js) fala com a UI
+    if (!inEditor && event.source !== window) return;
     const msg = event.data;
     if (!msg || typeof msg !== 'object') return;
     if (msg.type === 'state') {
       live = normalize(msg.state);
-      if (!demo) apply(live);
+      if (!demo) apply(view(live));
     } else if (msg.type === 'demo') {
       setDemo(!!msg.on);
     } else if (msg.type === 'focus' && msg.agentId) {
@@ -97,11 +101,50 @@
     return out;
   }
 
+  // ── Filtro: escritório inteiro × projeto local ──────────────────
+  // "local" = projetos abertos nesta janela (a extensão manda em
+  // `workspace`); o escritório inteiro mostra todos os projetos da máquina.
+  let scope = saved.scope === 'local' ? 'local' : 'all';
+
+  function view(s) {
+    const ws = new Set((s.workspace || []).map(String));
+    if (scope !== 'local' || !ws.size) return s;
+    const agents = s.agents.filter((a) => ws.has(a.project));
+    const ids = new Set(agents.map((a) => a.id));
+    return Object.assign({}, s, {
+      agents,
+      tasks: s.tasks.filter((t) => ids.has(t.assignee) || ws.has(t.project)),
+      activity: s.activity.filter((e) => ids.has(e.agentId) || ws.has(e.project)),
+      ghosts: [],
+      scoped: { total: s.agents.length, projects: [...ws] }
+    });
+  }
+
+  function setScope(next) {
+    scope = next === 'local' ? 'local' : 'all';
+    if (vscode) vscode.setState(Object.assign(saved, { scope }));
+    if (!demo) apply(view(live));
+    else renderScope();
+  }
+
+  function renderScope() {
+    const box = $('#scope');
+    const ws = (live.workspace || []).map(String);
+    box.hidden = ws.length === 0;
+    box.classList.toggle('off', !!demo);
+    const local = box.querySelector('[data-scope="local"]');
+    local.textContent = scope === 'local' && !demo ? ws.join(', ') : 'local';
+    local.title = 'Só quem trabalha em ' + ws.join(', ') + ' (projeto aberto nesta janela)';
+    for (const b of box.querySelectorAll('button')) b.classList.toggle('on', !demo && b.dataset.scope === scope);
+  }
+  for (const b of document.querySelectorAll('#scope button')) b.onclick = () => setScope(b.dataset.scope);
+
   function apply(s) {
     snapshot = s;
     scene.setAgents(s.agents, s.ghosts);
     scene.setStats(stats(s), s.spark);
     renderTopbar();
+    renderScope();
     renderBoard();
     renderFeed();
     renderDetail();
@@ -384,12 +427,22 @@
   }
 
   // ── Estado vazio ────────────────────────────────────────────────
+  const EMPTY_TEXT = { h1: $('#empty h1').textContent, p: $('#empty p').textContent, btn: $('#btn-demo-empty').textContent };
   function renderEmpty() {
     const box = $('#empty');
     const empty = !demo && snapshot.agents.length === 0;
     box.hidden = !empty;
     if (!empty) return;
+    // filtro local sem ninguém: aponta para o escritório inteiro
+    const sc = snapshot.scoped;
+    $('#empty h1').textContent = sc ? 'Ninguém em ' + sc.projects.join(', ') + ' agora' : EMPTY_TEXT.h1;
+    $('#empty p').textContent = sc
+      ? (sc.total ? sc.total + (sc.total > 1 ? ' agentes trabalhando' : ' agente trabalhando') + ' em outros projetos.' : 'Nenhum agente nos outros projetos também.') +
+        ' O filtro "local" mostra só quem trabalha na pasta aberta nesta janela.'
+      : EMPTY_TEXT.p;
+    $('#btn-demo-empty').textContent = sc ? 'Ver o escritório inteiro' : EMPTY_TEXT.btn;
     const ul = $('#empty-sources');
+    ul.style.display = sc ? 'none' : '';
     ul.textContent = '';
     for (const src of snapshot.sources) {
       const li = el('li', src.status || '');
@@ -407,19 +460,23 @@
     } else if (!on && demo) {
       demo.stop();
       demo = null;
-      apply(live);
+      apply(view(live));
     }
     $('#btn-demo').classList.toggle('on', !!demo);
+    renderScope();
     if (vscode) vscode.setState(Object.assign(saved, { demo: !!demo }));
   }
   $('#btn-demo').onclick = () => setDemo(!demo);
+  const openBtn = $('#btn-browser');
+  if (inEditor) openBtn.onclick = () => vscode.postMessage({ type: 'openBrowser' });
+  else openBtn.remove();
   for (const b of document.querySelectorAll('.column .clear')) {
     b.onclick = (e) => {
       e.stopPropagation();
       if (vscode && !demo) vscode.postMessage({ type: 'clearFinished' });
     };
   }
-  $('#btn-demo-empty').onclick = () => setDemo(true);
+  $('#btn-demo-empty').onclick = () => (snapshot.scoped ? setScope('all') : setDemo(true));
 
   // ── Feed lateral: só aparece quando não rouba tamanho do escritório ──
   const feedPref = () => saved.feed || 'auto';

@@ -11,6 +11,7 @@ const { spawnSync } = require('child_process');
 const { FileTailer } = require('../out/watchers/tailer');
 const { mergeClaude, mergeGemini, mergeCursor, stripMatcherHooks } = require('../out/hooks/installer');
 const { startEventServer } = require('../out/server/httpServer');
+const { createOfficeWeb } = require('../out/server/officeWeb');
 
 const tmp = (p) => fs.mkdtempSync(path.join(os.tmpdir(), p));
 
@@ -119,6 +120,83 @@ test('servidor: token, Host local, rotas /hook/<fonte> e /event', async () => {
   }
 });
 
+function request(port, method, p, headers = {}, body) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port, path: p, method, headers }, (res) => {
+      let data = '';
+      res.on('data', (c) => (data += c));
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: data }));
+    });
+    req.on('error', reject);
+    req.end(body);
+  });
+}
+
+test('modo navegador: token vira cookie, sem cookie é 401, mídia sem path traversal, SSE e ações', async () => {
+  const actions = [];
+  let snap = { agents: [], n: 1 };
+  let port = 0;
+  const web = createOfficeWeb({ mediaPath: path.join(__dirname, '..', 'media'), viewToken: 'v1ew', port: () => port, snapshot: () => snap, onAction: (m) => actions.push(m) });
+  const server = await startEventServer(46700 + Math.floor(Math.random() * 500), 'segredo', () => undefined, false, web.handle);
+  port = server.port;
+  try {
+    assert.equal(web.url(true), `http://127.0.0.1:${port}/office?t=v1ew`);
+    assert.equal((await request(port, 'GET', '/office')).status, 401);
+    assert.equal((await request(port, 'GET', '/office?t=errado')).status, 401);
+    const login = await request(port, 'GET', '/office?t=v1ew');
+    assert.equal(login.status, 303);
+    assert.equal(login.headers.location, '/office');
+    const cookie = login.headers['set-cookie'][0];
+    assert.match(cookie, /HttpOnly; SameSite=Strict; Path=\/office/);
+    const jar = { Cookie: cookie.split(';')[0] };
+
+    const page = await request(port, 'GET', '/office', jar);
+    assert.equal(page.status, 200);
+    assert.match(page.headers['content-security-policy'], /connect-src 'self'/);
+    assert.match(page.body, /src="\/office\/media\/browser\.js"/);
+    assert.ok(!page.body.includes('{{'), 'placeholders substituídos');
+    assert.equal((await request(port, 'GET', '/office', { Cookie: jar.Cookie + 'x' })).status, 401);
+
+    assert.equal((await request(port, 'GET', '/office/media/office.js')).status, 200);
+    assert.equal((await request(port, 'GET', '/office/media/..%2f..%2fpackage.json')).status, 404);
+    assert.equal((await request(port, 'GET', '/office/media/../../package.json')).status, 404);
+    assert.equal((await request(port, 'GET', '/office', { Host: 'evil.example' })).status, 403);
+    // o servidor de hooks continua igual
+    assert.equal((await request(port, 'GET', '/health')).status, 200);
+
+    assert.equal((await request(port, 'GET', '/office/events')).status, 401);
+    const frames = await new Promise((resolve, reject) => {
+      const req = http.get({ host: '127.0.0.1', port, path: '/office/events', headers: jar }, (res) => {
+        assert.equal(res.headers['content-type'], 'text/event-stream');
+        let data = '';
+        res.on('data', (c) => {
+          data += c;
+          if (data.includes('"n":1') && !data.includes('"n":2')) {
+            snap = { agents: [], n: 2 };
+            web.broadcast(snap);
+          }
+          if (data.includes('"n":2')) {
+            req.destroy();
+            resolve(data);
+          }
+        });
+      });
+      req.on('error', reject);
+    });
+    assert.match(frames, /event: state\ndata: \{"agents":\[\],"n":1\}/);
+    assert.match(frames, /event: state\ndata: \{"agents":\[\],"n":2\}/);
+
+    const act = JSON.stringify({ type: 'clearFinished' });
+    assert.equal((await request(port, 'POST', '/office/action', { 'Content-Type': 'application/json' }, act)).status, 401);
+    assert.equal((await request(port, 'POST', '/office/action', Object.assign({ 'Content-Type': 'application/json' }, jar), act)).status, 403);
+    assert.equal((await request(port, 'POST', '/office/action', Object.assign({ 'Content-Type': 'application/json', 'X-Agent-Office': '1' }, jar), act)).status, 204);
+    assert.deepEqual(actions, [{ type: 'clearFinished' }]);
+  } finally {
+    web.dispose();
+    server.dispose();
+  }
+});
+
 test('script de hook: repassa a todas as janelas, limpa endpoint órfão e sai com 0', async () => {
   const home = tmp('ao-home-');
   fs.mkdirSync(path.join(home, 'endpoints'), { recursive: true });
@@ -144,4 +222,25 @@ test('script de hook: repassa a todas as janelas, limpa endpoint órfão e sai c
   assert.equal(r.status, 0);
   assert.equal(String(r.stdout), '');
   fs.rmSync(home, { recursive: true, force: true });
+});
+
+test('projeto: worktrees contam como o repositório de origem', () => {
+  const { projectOf, projectRootOf, seenCwds } = require('../out/watchers/tailer');
+  const dir = tmp('ao-proj-');
+  const repo = path.join(dir, 'sorya-guardian');
+  const wt = path.join(dir, 'wt-gemini');
+  fs.mkdirSync(path.join(repo, '.git', 'worktrees', 'wt-gemini'), { recursive: true });
+  fs.mkdirSync(wt);
+  fs.writeFileSync(path.join(wt, '.git'), 'gitdir: ' + path.join(repo, '.git', 'worktrees', 'wt-gemini') + '\n');
+  assert.equal(projectOf(repo), 'sorya-guardian');
+  assert.equal(projectOf(wt), 'sorya-guardian');
+  assert.equal(projectOf('E:\\dev\\sorya-nexo\\.claude\\worktrees\\agent-a4a9ad94a46d73aca'), 'sorya-nexo');
+  assert.equal(projectOf('/home/u/sorya-nexo/.claude/worktrees/agent-1/packages/api'), 'sorya-nexo');
+  assert.equal(projectOf('E:\\dev\\sorya-control\\'), 'sorya-control');
+  assert.equal(projectOf(''), undefined);
+  // pastas vistas viram lugares onde procurar fichas (.claude/agents do projeto)
+  assert.ok(seenCwds().includes(wt));
+  assert.equal(projectRootOf('E:\\dev\\sorya-nexo\\.claude\\worktrees\\agent-a4a9'), 'E:\\dev\\sorya-nexo');
+  assert.equal(projectRootOf('/home/u/sorya-dmi'), '/home/u/sorya-dmi');
+  fs.rmSync(dir, { recursive: true, force: true });
 });

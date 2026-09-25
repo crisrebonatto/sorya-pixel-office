@@ -3,6 +3,38 @@
 Formato: cada versão tem uma seção `## [x.y.z] — data`. O workflow de
 release usa a seção da versão como texto da Release no GitHub.
 
+## [0.3.1] — 2026-09-25
+
+Nome da sessão principal (ex.: **Sora**) mais confiável.
+
+- Quando várias fichas citam a sessão principal ("chamado pela sessão principal"), vence a que se declara principal: diz que é a sessão principal, que não é para ser chamada como subagente ou tem "orquestrador" no nome. Antes, qualquer citação empatava e a plaquinha ficava "Claude".
+- As fichas agora também são procuradas no `.claude/agents` de cada projeto em que os agentes estão trabalhando, e não só no projeto aberto na janela.
+- `Agent Office: Recarregar nomes dos agentes` diz quantas personas achou e quem é a sessão principal, ou por que não achou.
+
+## [0.3.0] — 2026-09-25
+
+**Modo navegador**: o escritório também abre fora do editor, em `http://127.0.0.1:4517/office`.
+
+- Comando `Agent Office: Abrir no navegador` e botão **↗** no topo do escritório e na barra da view.
+- Mesma interface da extensão, ao vivo (Server-Sent Events): kanban, feed, detalhe dos agentes, demo e zoom.
+- Bom para tela cheia, segundo monitor, TV ou gravar a tela.
+- `Agent Office: Copiar link do navegador` para abrir em outro navegador.
+- A página avisa quando o editor fecha e reconecta sozinha quando ele volta.
+- Em Remote/WSL/SSH, a porta é encaminhada pelo próprio editor.
+
+### Filtro de projeto
+- Filtro **todos · local** no topo:
+  - **todos** (padrão) mostra o escritório inteiro, com todos os projetos da máquina;
+  - **local** mostra só quem trabalha no projeto aberto na janela, com o kanban e o feed filtrados junto.
+- A escolha fica salva por janela.
+- Worktrees agora contam como o repositório de origem. Antes, um subagente em `.claude/worktrees/agent-a4a9…` aparecia com esse nome no lugar do projeto.
+
+### Segurança
+- Token de visualização próprio, separado do token dos hooks. Ele vira cookie `HttpOnly; SameSite=Strict` e sai da URL, então não aparece em print nem em vídeo.
+- Sem cookie, nenhum dado é servido.
+- Ações exigem cabeçalho próprio (contra CSRF).
+- CSP com nonce, `X-Frame-Options: DENY` e isolamento de janela.
+
 ## [0.2.0] — 2026-09-25
 
 **Sorya Dev Hub**: o escritório virou um dev hub vivo em pixel art e passou a monitorar todos os agentes da máquina, sem configurar nada.

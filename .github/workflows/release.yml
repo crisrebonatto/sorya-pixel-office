@@ -76,9 +76,17 @@ jobs:
           cat >> notes.md <<'NOTES'
 
           ### Como instalar
-          1. Baixe o arquivo `.vsix` abaixo.
-          2. No VS Code / Antigravity / Cursor: **Extensions** → `…` → **Install from VSIX…** (ou `code --install-extension agent-office-*.vsix`).
+          1. Baixe o arquivo `.vsix` em **Assets**, abaixo.
+          2. No VS Code / Antigravity / Cursor: **Extensions** → `…` → **Install from VSIX…** e escolha o arquivo baixado.
+             Pelo terminal, passe o caminho completo: `code --install-extension "$env:USERPROFILE\Downloads\agent-office-vX.Y.Z.vsix"` (no Antigravity/Cursor: `antigravity` / `cursor`).
           3. Abra o ícone de prédio na Activity Bar ou rode **Agent Office: Abrir escritório em painel**. Sem agentes rodando? Clique em **demo**.
+
+          ### Atualizar pelo terminal (gh)
+          Baixa a última Release e instala por cima (Windows/PowerShell; no Antigravity/Cursor troque `code`):
+          ```powershell
+          gh release download -R crisrebonatto/sorya-pixel-office -p "*.vsix" -O "$env:TEMP\agent-office.vsix" --clobber
+          code --install-extension "$env:TEMP\agent-office.vsix" --force
+          ```
           NOTES
 
       - uses: softprops/action-gh-release@v2

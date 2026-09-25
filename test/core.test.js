@@ -136,6 +136,32 @@ test('store: nomes repetidos ganham o projeto; mesas acabam → lounge', () => {
   store.dispose();
 });
 
+test('nomes: várias fichas citam a sessão principal, vence quem se declara principal', () => {
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-names-main-'));
+  fs.writeFileSync(
+    path.join(dir, 'sora.md'),
+    '---\r\nname: sora-orquestradora\r\ndescription: Sora — sora-orquestradora (antes sorya-orquestrador). O orquestrador do ecossistema Sorya, a sessão principal que fala com o dono. Não é para ser chamado como subagente; é a ficha de quem coordena os outros 27.\r\n---\r\n# Sora\r\n'
+  );
+  fs.writeFileSync(path.join(dir, 'ravi.md'), '---\nname: ravi-revisor\ndescription: Ravi — ravi-revisor. Revisa cada entrega quando chamado pela sessão principal.\n---\n');
+  fs.writeFileSync(path.join(dir, 'tome.md'), '---\nname: tome-qa\ndescription: Tomé — tome-qa. Reporta à sessão principal o resultado dos testes.\n---\n');
+  fs.writeFileSync(path.join(dir, 'heitor.md'), '---\nname: heitor-orquestrador-de-testes\ndescription: Heitor — heitor-orquestrador-de-testes. O orquestrador de testes e2e.\n---\n');
+  const names = new NameDirectory(() => [dir]);
+  names.load();
+  assert.equal(names.mainName(), 'Sora');
+  assert.equal(names.resolve({ source: 'claude', kind: 'session', type: 'claude' }), 'Sora');
+  assert.equal(names.resolve({ source: 'claude', kind: 'subagent', type: 'ravi-revisor' }), 'Ravi');
+  // duas fichas empatadas como principal: ninguém vence, fica "Claude"
+  fs.writeFileSync(path.join(dir, 'sora.md'), '---\nname: sora\ndescription: Sora — sora. A sessão principal.\n---\n');
+  fs.writeFileSync(path.join(dir, 'lia.md'), '---\nname: lia\ndescription: Lia — lia. A sessão principal.\n---\n');
+  names.load();
+  assert.equal(names.mainName(), undefined);
+  assert.equal(names.resolve({ source: 'claude', kind: 'session', type: 'claude' }), 'Claude');
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
 test('nomes: persona da ficha, aliases antigos, CRLF, sessão principal e overrides', () => {
   const sora = profileFromText('---\r\nname: sora-orquestradora\r\ndescription: Sora — sora-orquestradora (antes sorya-orquestrador). O orquestrador do ecossistema, a sessão principal.\r\n---\r\n# x', 'a.md');
   assert.deepEqual([sora.slug, sora.persona, sora.aliases, sora.main], ['sora-orquestradora', 'Sora', ['sorya-orquestrador'], true]);

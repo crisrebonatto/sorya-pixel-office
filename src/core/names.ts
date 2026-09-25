@@ -14,6 +14,8 @@ import { AgentKind, AgentSource, SOURCE_SHORT } from './types';
  *
  * Daqui sai: slug → persona ("Rick"), aliases antigos → mesma persona e a
  * persona da sessão principal (a ficha que se declara "sessão principal").
+ * Várias fichas citam a sessão principal ("chamado pela sessão principal"),
+ * então cada uma ganha uma nota e vence a que mais se declara principal.
  */
 
 export interface AgentProfile {
@@ -22,6 +24,8 @@ export interface AgentProfile {
   description?: string;
   aliases: string[];
   main: boolean;
+  /** Quanto a ficha se declara a sessão principal (0 = não se declara). */
+  mainScore: number;
   file: string;
 }
 
@@ -48,6 +52,20 @@ const ROLE_WORDS = new Set([
 const PERSONA_RE = /^\s*["'“]?([\p{Lu}][\p{L}\p{M}'’.]{0,23}(?:\s[\p{Lu}][\p{L}\p{M}'’.]{0,23})?)\s+[—–-]{1,2}\s+/u;
 const ALIAS_RE = /\((?:antes|ex|formerly|previously|antigo)[:\s]+([a-z0-9][\w.-]*)\)/giu;
 const MAIN_RE = /sess[ãa]o principal|main session|orquestrador(?:a)? d|orchestrator of/i;
+const MAIN_SELF_RE = /(?:^|[^\p{L}])(?:[ée] a|sou a|a|is the|the)\s+(?:sess[ãa]o principal|main session)/iu;
+const NOT_SUBAGENT_RE = /n[ãa]o\s+(?:[ée]|deve\s+ser)\s+(?:para\s+ser\s+)?(?:chamad[oa]|invocad[oa]|usad[oa])\s+como\s+sub-?agente|not\s+(?:meant\s+)?to\s+be\s+(?:called|invoked|used)\s+as\s+a\s+sub-?agent/iu;
+const CALLED_BY_MAIN_RE = /(?:pela|pelo|da|do|na|no|à|para\s+a|by\s+the|from\s+the|to\s+the)\s+(?:sess[ãa]o principal|main session)/iu;
+
+function mainScore(slug: string, description: string | undefined): number {
+  if (!description) return 0;
+  let score = 0;
+  if (MAIN_RE.test(description)) score += 1;
+  if (MAIN_SELF_RE.test(description)) score += 2;
+  if (NOT_SUBAGENT_RE.test(description)) score += 2;
+  if (/orquestr|orchestr/i.test(slug)) score += 2;
+  if (CALLED_BY_MAIN_RE.test(description)) score -= 2;
+  return Math.max(0, score);
+}
 
 export function parseFrontmatter(raw: string): Record<string, string> {
   const out: Record<string, string> = {};
@@ -85,7 +103,8 @@ export function profileFromText(text: string, file: string): AgentProfile | unde
     ALIAS_RE.lastIndex = 0;
     while ((a = ALIAS_RE.exec(description))) aliases.push(a[1].toLowerCase());
   }
-  return { slug, persona, description, aliases, main: !!description && MAIN_RE.test(description), file };
+  const score = mainScore(slug, description);
+  return { slug, persona, description, aliases, main: score > 0, mainScore: score, file };
 }
 
 /** "heitor-debug" → "Heitor"; "code-reviewer" → "Code Reviewer". */
@@ -122,7 +141,7 @@ export class NameDirectory {
   /** Relê as fichas. Barato: poucas dezenas de arquivos pequenos. */
   load(): number {
     const next = new Map<string, AgentProfile>();
-    const mains: AgentProfile[] = [];
+    const best = new Map<string, number>(); // persona → maior nota de "sessão principal"
     for (const dir of this.dirs()) {
       for (const file of listMarkdown(dir, 4, 1500)) {
         let text: string;
@@ -137,13 +156,19 @@ export class NameDirectory {
         if (!p) continue;
         next.set(p.slug.toLowerCase(), p);
         for (const a of p.aliases) if (!next.has(a)) next.set(a, p);
-        if (p.main) mains.push(p);
+        if (p.main && p.persona) best.set(p.persona, Math.max(best.get(p.persona) || 0, p.mainScore));
       }
     }
     this.bySlug = next;
-    const uniqueMains = [...new Set(mains.map((m) => m.persona).filter(Boolean))];
-    this.mainPersona = uniqueMains.length === 1 ? uniqueMains[0] : undefined;
+    // vence a persona com a maior nota; empate entre personas = ninguém
+    const ranked = [...best.entries()].sort((a, b) => b[1] - a[1]);
+    this.mainPersona = ranked.length && (ranked.length === 1 || ranked[0][1] > ranked[1][1]) ? ranked[0][0] : undefined;
     return next.size;
+  }
+
+  /** Persona da sessão principal, se alguma ficha se declara assim. */
+  mainName(): string | undefined {
+    return this.mainPersona;
   }
 
   profile(slug: string): AgentProfile | undefined {
