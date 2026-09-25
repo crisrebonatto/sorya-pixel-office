@@ -44,51 +44,13 @@
     });
   }
 
-  // Monitor visto de frente (tela visível) — conteúdo desenhado ao vivo.
-  function monitorFront() {
-    return sprite('monFront', 16, 15, (p) => {
-      p.rect(0, 0, 16, 11, P.ink);
-      p.rect(1, 1, 14, 9, P.bezel);
-      p.rect(2, 2, 12, 7, P.screenOff);
-      p.hline(1, 1, 14, P.bezelHi);
-      // haste + base
-      p.rect(7, 11, 2, 2, P.stand);
-      p.rect(4, 13, 8, 2, P.ink);
-      p.rect(5, 13, 6, 1, P.stand);
-    });
-  }
 
-  // Monitor visto de trás (costas escuras + LED de estado).
-  function monitorBack() {
-    return sprite('monBack', 16, 15, (p) => {
-      p.rect(0, 0, 16, 11, P.ink);
-      p.rect(1, 1, 14, 9, P.bezelHi);
-      p.rect(2, 2, 12, 7, P.bezel);
-      p.rect(6, 4, 4, 3, P.bezelHi);
-      p.rect(7, 11, 2, 2, P.stand);
-      p.rect(4, 13, 8, 2, P.ink);
-      p.rect(5, 13, 6, 1, P.stand);
-    });
-  }
 
-  // Notebook aberto de frente.
-  function laptop() {
-    return sprite('laptop', 14, 11, (p) => {
-      p.rect(1, 0, 12, 8, P.ink);
-      p.rect(2, 1, 10, 6, P.screenOff);
-      p.rect(0, 8, 14, 3, P.ink);
-      p.rect(1, 8, 12, 2, P.metal);
-      p.hline(1, 8, 12, P.metalHi);
-    });
-  }
 
-  function keyboard() {
-    return sprite('kbd', 12, 4, (p) => {
-      p.rect(0, 0, 12, 4, P.ink);
-      p.rect(1, 1, 10, 2, P.metalLo);
-      for (let i = 1; i < 11; i += 2) p.px(i, 1, P.metal);
-    });
-  }
+
+
+
+
 
   function mug(color) {
     return sprite('mug' + color, 5, 5, (p) => {
@@ -626,10 +588,6 @@
   AO.furniture = {
     sprite,
     desk,
-    monitorFront,
-    monitorBack,
-    laptop,
-    keyboard,
     mug,
     chairFront,
     chairBack,

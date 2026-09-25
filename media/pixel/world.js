@@ -119,20 +119,9 @@
   // ── Ambiente dinâmico (preenchido pela cena a cada quadro) ─────────
   // env = { t, agentsByDesk, activity, stats, hour, lights }
 
-  // Telas: conteúdo por estado do agente.
-  const SCREEN_MODES = {
-    off: null,
-    idle: 'idle',
-    thinking: 'think',
-    reading: 'doc',
-    writing: 'code',
-    running: 'term',
-    searching: 'web',
-    waiting: 'wait',
-    error: 'error',
-    done: 'done'
-  };
+  const CONSOLE_MODE = { error: 'error', waiting: 'wait', running: 'term', writing: 'code', reading: 'doc', searching: 'web', thinking: 'think', done: 'done' };
 
+  // Telas animadas (console da server room): conteúdo por modo.
   function drawScreen(ctx, x, y, w, h, mode, t, seed) {
     const p = new Painter(ctx);
     if (!mode) {
@@ -330,7 +319,8 @@
   block(6, 3, 1, 1);
   const consoleImg = F.console();
   obj(consoleImg, 3 * T, 7 * T - 24, 7 * T - 2, (ctx, env) => {
-    drawScreen(ctx, 3 * T + 3, 7 * T - 23, 11, 8, 'term', env.t, 77);
+    // tela da esquerda espelha o estado mais urgente do escritório
+    drawScreen(ctx, 3 * T + 3, 7 * T - 23, 11, 8, CONSOLE_MODE[env.dominant] || 'idle', env.t, 77);
     // gráfico de atividade (barras)
     const x0 = 3 * T + 18;
     const y0 = 7 * T - 23;
@@ -903,7 +893,6 @@
     drawScreen,
     skyFor,
     roomAt,
-    SCREEN_MODES,
     stateColor,
     darken,
     lighten

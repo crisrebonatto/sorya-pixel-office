@@ -81,6 +81,7 @@ export class FileTailer {
     try {
       const now = Date.now();
       const found: string[] = [];
+      const discovered: Array<[string, Tracked]> = [];
       for (const root of this.opts.roots()) {
         let st: fs.Stats;
         try {
@@ -90,8 +91,12 @@ export class FileTailer {
         }
         if (!st.isDirectory()) continue;
         found.push(root);
-        await this.walk(root, root, this.opts.maxDepth, now);
+        await this.walk(root, root, this.opts.maxDepth, now, discovered);
       }
+      // Rasos primeiro (sessão principal antes dos subagentes): na
+      // reconstrução, quem chegou antes pega a mesa antes.
+      discovered.sort((a, b) => a[0].split(path.sep).length - b[0].split(path.sep).length || a[1].mtimeMs - b[1].mtimeMs);
+      for (const [file, t] of discovered) this.files.set(file, t);
       this.foundRoots = found;
       // esquece arquivos frios (voltam se mudarem de novo)
       for (const [file, t] of this.files) {
@@ -103,7 +108,7 @@ export class FileTailer {
     }
   }
 
-  private async walk(root: string, dir: string, depth: number, now: number): Promise<void> {
+  private async walk(root: string, dir: string, depth: number, now: number, discovered: Array<[string, Tracked]>): Promise<void> {
     let entries: fs.Dirent[];
     try {
       entries = await fs.promises.readdir(dir, { withFileTypes: true });
@@ -114,7 +119,7 @@ export class FileTailer {
       const full = path.join(dir, e.name);
       const rel = path.relative(root, full);
       if (e.isDirectory()) {
-        if (depth > 0 && !(this.opts.skipDir && this.opts.skipDir(e.name, rel))) await this.walk(root, full, depth - 1, now);
+        if (depth > 0 && !(this.opts.skipDir && this.opts.skipDir(e.name, rel))) await this.walk(root, full, depth - 1, now, discovered);
         continue;
       }
       if (!e.isFile() || !this.opts.match(rel, e.name) || this.files.has(full)) continue;
@@ -126,7 +131,7 @@ export class FileTailer {
       }
       if (now - st.mtimeMs > this.opts.recentMs) continue;
       const start = this.opts.mode === 'lines' ? Math.max(0, st.size - this.opts.initialBytes) : 0;
-      this.files.set(full, { offset: start, size: -1, mtimeMs: st.mtimeMs, partial: '', initialDone: false });
+      discovered.push([full, { offset: start, size: -1, mtimeMs: st.mtimeMs, partial: '', initialDone: false }]);
     }
   }
 

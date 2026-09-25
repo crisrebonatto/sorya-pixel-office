@@ -194,6 +194,8 @@ export class ClaudeTranscriptParser {
       return;
     }
     if (INJECTED.test(t)) return;
+    // subagente não recebe pedido humano: o texto é a delegação (já é o card)
+    if (this.ids.subagentId) return;
     const title = promptTitle(t);
     if (!title) return;
     this.sawPrompt = true;

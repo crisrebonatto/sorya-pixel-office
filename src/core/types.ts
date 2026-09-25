@@ -23,6 +23,18 @@ export const SOURCE_LABEL: Record<AgentSource, string> = {
   other: 'Outro'
 };
 
+/** Nome curto padrão da plaquinha quando não há persona configurada. */
+export const SOURCE_SHORT: Record<AgentSource, string> = {
+  claude: 'Claude',
+  codex: 'Codex',
+  gemini: 'Gemini',
+  antigravity: 'Antigravity',
+  copilot: 'Copilot',
+  cursor: 'Cursor',
+  windsurf: 'Windsurf',
+  other: 'Agente'
+};
+
 export type AgentState =
   | 'idle' // turno encerrado, esperando o próximo prompt
   | 'thinking' // processando entre ferramentas

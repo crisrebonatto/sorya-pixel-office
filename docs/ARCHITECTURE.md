@@ -1,264 +1,166 @@
 # Agent Office
-## Documento de Arquitetura e Implementação
+## Documento de Arquitetura — v2 (Dev Hub)
 
-> Extensão para VS Code e Cursor que mostra, em pixel art, cada agente de IA trabalhando na própria mesa, com quadro de tarefas em tempo real.
+> Extensão para VS Code, Antigravity e Cursor que mostra, em pixel art, cada agente de IA trabalhando na própria mesa de um dev hub, com kanban e feed em tempo real.
 >
-> **Versão:** 1.0
-> **Status:** Especificação para implementação
-> **Stack:** TypeScript · VS Code Extension API · Webview · Sprites CSS
+> **Versão:** 2.0 · **Stack:** TypeScript · VS Code Extension API · Webview + Canvas 2D (pixel art procedural)
 
 ---
 
 ## 1. Princípio central
 
-O Agent Office não lê o terminal. Nunca.
+O Agent Office **não lê o terminal. Nunca.** Texto de terminal quebra com cor ANSI, quebra de linha, redimensionamento e mudança de formato.
 
-Interpretar texto de terminal é frágil por natureza: quebra quando o formato muda, quebra com cores ANSI, quebra com quebra de linha, quebra quando a janela redimensiona. Qualquer painel construído em cima disso vive quebrado.
+A v1 consumia só hooks do Claude Code, e isso tinha um furo prático: o token e a porta iam como variáveis de ambiente **apenas para os terminais integrados**. Sessões do painel da extensão do Claude Code, do Codex na IDE ou do Gemini nunca chegavam. O escritório ficava vazio (`0/8`) justamente no uso mais comum.
 
-O Agent Office consome **eventos estruturados** emitidos pelos próprios agentes. O Claude Code tem um sistema de hooks que dispara JSON em cada momento relevante do ciclo de vida. O Codex CLI emite um stream de eventos em JSON. São essas duas fontes que alimentam o escritório.
+A v2 inverte a prioridade:
 
-A consequência prática disso é importante: como os hooks do Claude Code disparam igual no terminal, na extensão de IDE, no app desktop e na web, **você continua trabalhando onde já trabalha**. O escritório apenas observa.
+1. **Registros locais estruturados (sem configuração).** Toda ferramenta séria já grava a sessão em JSONL/JSON no disco: Claude Code, Codex, Gemini CLI e Antigravity. O escritório lê esses arquivos incrementalmente. Isso funciona em qualquer superfície (terminal, extensão, desktop) sem instalar nada.
+2. **Hooks (opcionais).** Trazem o que nenhum registro grava, o instante em que o agente **pede sua aprovação**, e reduzem a latência. Instalação em um comando, com backup e desinstalação limpa.
 
-### A metáfora
-
-Cada agente ativo ocupa uma mesa. O que ele está fazendo agora define a animação dele. As tarefas ficam num quadro na parede. Quando um agente precisa da sua aprovação, ele levanta a mão.
-
-Você bate o olho e entende o estado da operação inteira sem abrir terminal nenhum.
+Você continua trabalhando onde já trabalha. O escritório apenas observa.
 
 ---
 
 ## 2. Arquitetura
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  Claude Code (terminal, IDE, desktop ou web)        │
-│  Codex CLI (via adaptador)                          │
-└────────────────────┬────────────────────────────────┘
-                     │  hooks HTTP (async, com token)
-                     ▼
-┌─────────────────────────────────────────────────────┐
-│  Extensão VS Code (processo Node da própria IDE)    │
-│                                                     │
-│  ┌───────────────┐   ┌──────────────┐              │
-│  │ Servidor HTTP │──▶│ Event Router │              │
-│  │ 127.0.0.1     │   │ + State      │              │
-│  └───────────────┘   └──────┬───────┘              │
-│                             │ postMessage           │
-│                             ▼                       │
-│                    ┌─────────────────┐              │
-│                    │    Webview      │              │
-│                    │ Escritório +    │              │
-│                    │ Quadro (sprites)│              │
-│                    └─────────────────┘              │
-└─────────────────────────────────────────────────────┘
+ Claude Code ─┐   ~/.claude/projects/**.jsonl, ~/.claude/sessions/*.json
+ Codex ───────┤   ~/.codex/sessions/AAAA/MM/DD/rollout-*.jsonl
+ Gemini CLI ──┤   ~/.gemini/tmp/*/chats/session-*.jsonl
+ Antigravity ─┘   ~/.gemini/antigravity*/brain/*/task.md, transcript.jsonl
+        │  (tailing incremental, polling ~1 s)
+        ▼
+ ┌──────────────────────── Extensão (processo Node da IDE) ─────────────────┐
+ │ Watchers ─► parsers por fonte ─┐                                          │
+ │                                ├─► EventRouter ─► StateStore ─► snapshot  │
+ │ HTTP 127.0.0.1 ◄─ hooks ───────┘   (NormalizedEvent)   (memória)    │     │
+ │   /hook/<fonte>  (Claude, Codex, Gemini, Cursor, Copilot, Windsurf…)│     │
+ │ NameDirectory (fichas .md → personas)                               ▼     │
+ │                                                    postMessage (≤ 8/s)    │
+ └──────────────────────────────────────────────────────────────┬───────────┘
+                                                                ▼
+                 Webview: escritório em canvas + kanban + feed + detalhe
 ```
-
-### Por que tudo dentro da extensão
-
-A extensão do VS Code já roda num processo Node completo. Ela pode abrir um servidor HTTP, manter estado em memória e conversar com a webview por `postMessage`, que é o canal nativo.
-
-Subir um daemon separado com SQLite e WebSocket, como seria a solução "clássica", adicionaria: gerenciamento de ciclo de vida de processo, conflito de porta, risco de processo órfão quando a IDE fecha, e instalação em dois passos. Sem ganho nenhum enquanto o escritório só precisa existir com a IDE aberta.
-
-O daemon separado só se justifica quando você quiser o escritório rodando com o VS Code fechado. Isso está previsto na seção 13, e a arquitetura aqui não impede essa evolução: basta extrair o Event Router para um processo próprio e trocar `postMessage` por WebSocket.
-
-### Componentes
 
 | Componente | Responsabilidade |
 |---|---|
-| **Servidor HTTP** | Recebe POST dos hooks em `127.0.0.1:PORTA`, valida token, entrega ao router |
-| **Event Router** | Normaliza eventos de fontes diferentes num formato único |
-| **State Store** | Mantém em memória: mesas ocupadas, estado de cada agente, tarefas |
-| **Webview Provider** | Renderiza o escritório, recebe atualizações de estado |
-| **Codex Adapter** | Traduz o stream do Codex CLI para o formato normalizado |
+| `watchers/tailer.ts` | Descobre arquivos por varredura periódica e lê só o que foi anexado. Tolera truncamento e reescrita. Na primeira leitura, pega só o fim do arquivo. |
+| `watchers/{claude,codex,gemini,antigravity}.ts` | Parser por fonte: linha do registro → `NormalizedEvent[]`, já redigido. |
+| `adapters/hooks.ts` | Normalizador universal de hooks: `PreToolUse`, `BeforeTool`, `beforeShellExecution`, `pre_run_command`… viram o mesmo evento. |
+| `core/stateStore.ts` | Agentes, mesas fixas, tarefas, feed, deduplicação hook × registro, heurística de espera, limpeza por inatividade. |
+| `core/names.ts` | Personas a partir das fichas de agentes; overrides nas configurações. |
+| `server/*` | Servidor local (token, `Host` local, repasse entre janelas), descoberta por janela e redação. |
+| `hooks/installer.ts` | Instala e remove hooks em Claude, Codex, Gemini, Cursor e Copilot. |
+| `media/pixel/*` | Engine de pixel art procedural: personagens, mobília, mapa, cena. |
+
+### Por que tudo dentro da extensão
+
+A extensão já é um processo Node completo. Um daemon separado traria ciclo de vida de processo, processo órfão e instalação em dois passos, sem ganho enquanto o escritório só precisa existir com a IDE aberta. O `StateStore` não depende do VS Code: dá para extrair para um daemon quando o "modo companion" (IDE fechada) fizer sentido.
 
 ---
 
-## 3. A ponte de eventos
+## 3. Fontes
 
-### Eventos do Claude Code que importam
+Todos os formatos são **internos às ferramentas** e mudam entre versões. Os parsers são defensivos, ignoram o que não reconhecem e são testados com fixtures.
 
-| Evento do hook | O que acontece na tela |
-|---|---|
-| `SessionStart` | Escritório acende, luzes ligadas |
-| `SubagentStart` | Agente entra e senta numa mesa |
-| `PreToolUse` | Animação muda conforme a ferramenta |
-| `PostToolUse` | Volta ao estado de trabalho normal |
-| `PostToolUseFailure` | Sprite de erro, monitor pisca vermelho |
-| `Notification` (`agent_needs_input`) | Agente levanta a mão |
-| `PermissionRequest` | Balão de interrogação sobre a mesa |
-| `TaskCreated` | Post-it novo aparece no quadro |
-| `TaskCompleted` | Post-it move para a coluna Feito |
-| `TeammateIdle` | Agente encosta na cadeira, café na mão |
-| `SubagentStop` | Agente levanta e sai, mesa libera |
-| `Stop` | Turno encerrado |
-| `SessionEnd` | Escritório apaga |
+### Claude Code
+- **Arquivos.** `~/.claude/projects/<cwd-sanitizado>/<sessão>.jsonl`. Subagentes ficam em `<sessão>/subagents/agent-<id>.jsonl`, com `agent-<id>.meta.json` ao lado (`agentType`, `description`, `toolUseId`). Terminal, extensão da IDE e app desktop gravam no mesmo lugar (`entrypoint` diz qual).
+- **Mensagens.** Cada bloco de uma resposta vira uma linha (mesmo `message.id`). Tokens são somados por delta, por mensagem. Linhas repetidas (compactação) são descartadas por `uuid`.
+- **Pedidos.** Um `user` com texto é pedido; com `tool_result`, é fim de ferramenta (`is_error` indica falha). `[Request interrupted…` é interrupção. `attachment/queued_command` traz as mensagens enviadas no meio do turno (viram card) e o `<task-notification>` que avisa que um subagente em background terminou.
+- **Fim de turno.** Vem de `stop_reason: end_turn` e de `system/turn_duration`. `last-prompt` dá o título do pedido quando a leitura começou no meio do arquivo.
+- **Tarefas.** `TodoWrite`, `TaskCreate` e `TaskUpdate` viram tarefas. Nos modelos atuais essas ferramentas vêm desligadas por padrão, por isso o kanban se apoia em pedidos e subagentes.
+- **Sessões vivas.** `~/.claude/sessions/<pid>.json` diz quais sessões estão vivas (pid, `status`, `entrypoint`, `cwd`). Processo morto significa que o agente sai, e o histórico dele não ressuscita no replay.
 
-### Os campos que resolvem a atribuição de mesa
+### Codex
+- **Arquivos.** `$CODEX_HOME/sessions/AAAA/MM/DD/rollout-*.jsonl`: `{timestamp, type, payload}`, com flush por linha. `session_meta` traz thread, `cwd`, `originator` (`codex-tui`, `codex_vscode`, `codex_exec`…) e subagente (`source.subagent.thread_spawn.parent_thread_id`).
+- **Ferramentas.** `function_call`/`custom_tool_call` casam com o output pelo `call_id`. O código de saída vem do texto do output. `apply_patch` fornece a lista de arquivos (`*** Update File:`). `update_plan` vira tarefas.
+- **Turnos e tokens.** `task_complete`/`turn_aborted` fecham o turno. `token_count` é acumulado, então o store soma o delta.
+- **Aprovação.** Pedidos de aprovação **não** são gravados: só o hook `PermissionRequest` sabe.
 
-- **`agent_id`** identifica unicamente aquele subagente. É o número da mesa.
-- **`agent_type`** diz qual é o tipo (`Explore`, `Plan`, ou o nome do seu agente customizado). É o skin do sprite.
+### Gemini CLI
+- `~/.gemini/tmp/<projeto>/chats/session-*.jsonl` (v0.39+) só anexa. Uma mensagem com o mesmo `id` é reanexada quando muda, e vence a última. Há ainda `{"$set"}`/`{"$rewindTo"}`. O formato antigo é um `.json` reescrito inteiro.
+- Ferramentas só entram depois de concluídas. Uma resposta sem ferramentas encerra o turno.
+- `.project_root` dá o caminho real do projeto.
 
-Sem esses dois campos você não conseguiria diferenciar dois agentes rodando em paralelo. Com eles, a atribuição é determinística.
-
-### Configuração dos hooks
-
-Os hooks vão em `hooks/hooks.json` empacotado como plugin do Claude Code, para que instalar a extensão já configure a captura. Ver o arquivo no repositório para a configuração completa — todos os eventos da tabela acima postam em `http://127.0.0.1:$AGENT_OFFICE_PORT/event` com `Authorization: Bearer $AGENT_OFFICE_TOKEN`.
-
-### `async: true` não é opcional
-
-Sem essa flag, o Claude Code **espera** o servidor responder antes de continuar. Cada tool call passaria a pagar a latência do painel. Com `async`, o hook dispara em background e o trabalho segue.
-
-Essa é a diferença entre um painel que é prazeroso de ter e um painel que você desinstala na segunda semana porque deixou tudo lento.
+### Antigravity *(best effort)*
+- `brain/<conversa>/task.md`: checklist `[ ]` / `[/]` / `[x]` vira tarefas do quadro.
+- `transcript.jsonl` (builds novos): passos com `tool_calls`.
+- Mudança em `conversations/<id>.pb|.db` significa agente ativo. Novos arquivos em `code_tracker/active` são arquivos editados.
+- Os três diretórios (`antigravity`, `antigravity-ide`, `antigravity-cli`) são lidos.
 
 ---
 
-## 4. Modelo de dados
+## 4. Hooks
 
-Ver `src/core/types.ts` — os tipos lá são a versão canônica de `AgentSource`, `AgentState`, `Agent`, `Task`, `TaskStatus`, `OfficeState` e `NormalizedEvent`.
-
-### Atribuição de mesa
-
-Escritório com layout **fixo**, não orgânico. Oito mesas desenhadas desde o início, mesa vazia fica vazia.
-
-O motivo é legibilidade: com mesas fixas, seu olho aprende que "a mesa do canto é sempre o Codex". Com mesas nascendo e sumindo, o layout muda a cada evento e você perde a referência espacial, que é justamente o que torna o painel útil de relance.
-
-Regra: `agent_id` novo ocupa a menor mesa livre. Quando o agente sai, a mesa é liberada mas mantém o nome esmaecido por alguns segundos, para você conseguir ler o que acabou de acontecer.
-
----
-
-## 5. Segurança
-
-Este servidor recebe o `tool_input` completo dos seus agentes: caminhos de arquivo, conteúdo de edições, comandos bash. Tratar isso como dado público seria um erro sério.
-
-- **Bind restrito:** `server.listen(port, '127.0.0.1')` — nunca `0.0.0.0`.
-- **Token por sessão:** gerado na ativação, guardado em `SecretStorage`, exportado como variável de ambiente que o hook interpola no header. Sem token: 401.
-- **Porta dinâmica com fallback:** tenta `4517`; se ocupada, sobe na próxima livre e exporta a porta real.
-- **Redação do payload:** conteúdo de `Edit`/`Write` descartado (só o nome do arquivo); `Bash` guarda só o binário; nada é persistido em disco na v1.
-- **CSP da webview:** sem `connect-src` — a webview não fala com a rede, só recebe `postMessage`.
-
----
-
-## 6. A interface
-
-Container próprio na Activity Bar, ícone de prédio. Em tela estreita o quadro fica abaixo do escritório; em tela larga, lado a lado.
-
-`retainContextWhenHidden: true` impede o escritório de resetar na troca de aba. Custa memória; é memória bem gasta.
-
-### Identidade visual
-
-| Elemento | Valor |
-|---|---|
-| Fundo do escritório | `#0D0D0C` |
-| Piso e paredes | `#161615` e `#1C1C1B` |
-| Mesa e mobiliário | `#242423` |
-| Acento (agente ativo) | `#C96A47` |
-| Sucesso | `#6DB86F` |
-| Atenção | `#E0B84A` |
-| Erro | `#E06464` |
-| Fonte dos rótulos | JetBrains Mono, uppercase, letter-spacing `.09em` |
-
-O agente ativo recebe um brilho terracota sutil na mesa. Os inativos ficam dessaturados.
-
----
-
-## 7. Estados de animação
-
-Sprites em CSS com `steps()`, não engine de jogo. Sprite sheets de 128×32 (4 frames de 32px), `image-rendering: pixelated`.
-
-| Estado | Vem de | Animação |
+| Ferramenta | Evento de "espera" | Transporte |
 |---|---|---|
-| `idle` | `TeammateIdle`, sem evento recente | Respiração lenta, xícara na mesa |
-| `thinking` | Entre `Stop` e próximo tool | Balão de reticências pulsando |
-| `reading` | `PreToolUse`: Read, Grep, Glob | Folheando documento |
-| `writing` | `PreToolUse`: Edit, Write | Digitando |
-| `running` | `PreToolUse`: Bash | Terminal na tela |
-| `searching` | `PreToolUse`: WebFetch, WebSearch | Globo girando |
-| `waiting` | `Notification`, `PermissionRequest` | Mão levantada, "!" piscando |
-| `error` | `PostToolUseFailure` | Monitor vermelho |
-| `done` | `SubagentStop` | Levanta, acena, sai |
+| Claude Code | `PermissionRequest`, `Notification(permission_prompt)` | HTTP → `127.0.0.1:4517/hook/claude` com `Bearer` |
+| Codex | `PermissionRequest` | `command` async → `~/.agent-office/hook.js codex` |
+| Gemini CLI | `Notification(ToolPermission)` | `command` → `hook.js gemini` (imprime `{}`) |
+| Cursor | `beforeShellExecution`… | `command` → `hook.js cursor` |
+| Copilot (VS Code) | — | `command` → `hook.js copilot` |
 
-`waiting` é o único estado que exige ação sua: o card pulsa em `#E0B84A` e a extensão pode disparar notificação nativa. Com `prefers-reduced-motion`, o estado é comunicado por ícone estático e cor, sem perda de informação.
+- **Descoberta por janela.** Cada janela publica `~/.agent-office/endpoints/<pid>.json` (porta + token, `0600`). O `hook.js` fica num caminho estável, então sobrevive a atualizações da extensão, e repassa o evento para **todas** as janelas, limpando endpoints órfãos.
+- **Repasse do hook HTTP do Claude.** Ele chega só na janela dona da porta preferida, que repassa às outras (cabeçalho `X-Agent-Office-Relay` evita laço). Um guardião tenta assumir a porta preferida se a janela dona fechar.
+- **Deduplicação.** Hook e registro relatam o mesmo `tool_use_id`, então estatística e feed contam uma vez só.
 
 ---
 
-## 8. Quadro de tarefas
+## 5. Modelo de dados
 
-As colunas nascem dos eventos, não do Kanban clássico — não existe evento de "revisão", então não existe coluna de revisão.
+Ver `src/core/types.ts`: `Agent`, `Task`, `Activity`, `OfficeSnapshot`, `NormalizedEvent`.
 
-| Coluna | Origem | Cor |
-|---|---|---|
-| **Pendente** | `TaskCreated` | Neutro |
-| **Em execução** | `SubagentStart` ou primeiro `PreToolUse` da tarefa | Terracota |
-| **Feito** | `TaskCompleted` | Verde |
-| **Falhou** | `PostToolUseFailure`, `StopFailure` | Vermelho |
-
-A coluna "Falhou" é a que o Kanban tradicional esquece e que num painel de agentes é essencial.
-
-Clicar no card destaca a mesa do agente responsável; clicar na mesa destaca a tarefa.
+- **Identidade.** `claude:<sessão>[:<subagente>]`, `codex:<thread>`, `gemini:<sessão>`, `antigravity:<conversa>`, `cursor:<conversa>`… Os ids do hook e do registro coincidem.
+- **Mesas fixas.** 12 mesas desenhadas desde o início, preenchidas do centro para fora. `agent_id` novo ocupa a menor mesa livre. Quem sai deixa o nome esmaecido por alguns segundos. Sem mesa livre, o agente fica no lounge.
+- **Kanban.** Cada pedido vira um card, fechado no fim do turno (Falhou se interrompido). Cada subagente vira um card com a descrição da delegação. Todos, planos e checklists viram cards explícitos.
+- **Reconstrução.** Eventos mais antigos que o timeout de ociosidade não criam agentes. Todo evento carrega os metadados do agente (tipo, título, modelo), para o agente nascer completo mesmo se o início ficou fora da janela lida.
+- **Heurística de espera (sem hooks).** Ferramenta que costuma pedir permissão (edição, web, MCP) pendente há mais de 7 s, com o registro em silêncio, vira "aguardando aprovação?". Comandos longos não entram, e com hooks ativos a heurística desliga.
 
 ---
 
-## 9. Adaptador do Codex
+## 6. O escritório (webview)
 
-```
-Claude chama comando de delegação
-        ↓
-Adaptador registra a tarefa com assignee: codex
-        ↓
-Adaptador executa o Codex CLI capturando o stream de eventos
-        ↓
-Traduz cada evento para o formato normalizado
-        ↓
-Entrega ao mesmo router dos hooks
-```
-
-| Evento Codex | Estado no escritório |
-|---|---|
-| início de thread | `SubagentStart`, senta na mesa |
-| início de turno | `thinking` |
-| execução de comando | `running` |
-| alteração de arquivo | `writing` |
-| conclusão | `done`, tarefa vai para Feito |
-| erro | `error`, tarefa vai para Falhou |
-
-**Ressalva:** confirme a sintaxe exata do flag de saída JSON na documentação atual do Codex CLI. A tradução vive isolada em `translateCodexEvent()` justamente por isso — se o formato mudar, troca-se uma função, não a arquitetura.
+- **Pixel art 100% procedural.** Nada de assets externos. Personagens chibi em vista 3/4 (cabeça grande, 8 estilos de cabelo, 6 tons de pele, contorno automático, 4 direções) com poses de andar, sentar/digitar, mão levantada, acenar, café e sofá. A roupa segue a fonte (Claude terracota, Codex grafite, Gemini azul, Antigravity roxo) e há fones para sessões, boné para `Explore` e óculos para `Plan`.
+- **Mapa fixo 34×19.** Open space com 12 mesas (todos de frente para a câmera), server room com LEDs que aceleram com comandos rodando, sala de reunião com TV ao vivo, cozinha, lounge com fliperama e canto do build com painel de CI.
+- **Comportamento.**
+  - Entra pela porta e anda por BFS na grade até a mesa.
+  - Trabalhando: digita, lê.
+  - Esperando: levanta a mão e mostra "!".
+  - Com erro: olhos em X e plaquinha vermelha.
+  - Ocioso há mais de 14 s: café, depois sofá, pufe, fliperama ou pingue-pongue (a bola aparece quando os dois lados estão ocupados).
+  - Subagente que concluiu: acena e sai.
+- **Plaquinha com o nome em cima da cabeça.** Traz o ícone do estado. As que colidem se empilham, e a de quem espera fica amarela, com um "!" quicando.
+- **Renderização.** Buffer nativo 544×304 com escala *sharp-bilinear* (vizinho mais próximo até k inteiro, bilinear até o alvo), então fica nítido em qualquer tamanho e DPI. Os textos são desenhados em alta resolução por cima. A iluminação segue a hora real e a ocupação (escritório vazio fica na penumbra), e o loop roda a 30 fps, pausando com a aba oculta.
+- **Layout.** Escritório em cima, kanban embaixo (divisor arrastável). O feed lateral só aparece quando não rouba tamanho do escritório. Em painel estreito a câmera aproxima nas mesas (arrastar move).
+- **Acessibilidade.** `prefers-reduced-motion` desliga caminhadas (teletransporta), piscadas e animações, mantendo estado por cor e ícone.
 
 ---
 
-## 10. Estrutura de arquivos
+## 7. Segurança
 
-`src/` roda no Node da extensão e tem acesso ao sistema. `media/` roda na webview isolada e só recebe mensagens. Nunca misturar os dois. Ver a árvore real do repositório — ela segue a spec.
-
----
-
-## 11. Fases de implementação
-
-- **Fase 1 — A ponte:** servidor + token + hook + eventos chegando. Se a ponte não funciona, o resto é decoração.
-- **Fase 2 — O escritório:** 8 mesas fixas, atribuição por `agent_id`, sprites, skins, painel de detalhe.
-- **Fase 3 — O quadro:** 4 colunas reais, cards, ligação bidirecional card↔mesa.
-- **Fase 4 — Codex:** comando de delegação, captura e tradução do stream.
-- **Fase 5 — Acabamento:** notificação nativa, `prefers-reduced-motion`, configurações, `.vsix`.
+- Servidor com bind **sempre** em `127.0.0.1`. Token por janela, com comparação em tempo constante. Só aceita `Host` local, contra DNS rebinding.
+- **Redação** (`server/redact.ts`) antes de qualquer estado: basename de arquivo, binário + subcomando simples, host de URL. Nunca conteúdo de edição, texto de busca ou argumentos.
+- Webview com CSP sem `connect-src` e scripts só com nonce.
+- Nada persistido além do arquivo de endpoint (`0600`, apagado ao fechar).
 
 ---
 
-## 12. Decisões e trade-offs
+## 8. Decisões e trade-offs
 
-- **Servidor dentro da extensão:** instalação em um passo, sem processo órfão. Custo: escritório só existe com a IDE aberta. Extração para daemon é mecânica quando precisar.
-- **Sprites CSS:** bundle leve, sem atrito com CSP. Custo: teto de complexidade visual — problema bom de se ter.
-- **Mesas fixas:** memória espacial e leitura de relance. Custo: espaço ocioso com poucos agentes.
-- **Sem persistência na v1:** superfície de vazamento próxima de zero. Custo: fechou a IDE, perdeu o histórico.
-- **`retainContextWhenHidden`:** o escritório sobrevive à troca de aba. Custo: memória. Bem gasta.
-
----
-
-## 13. O que fica para a v2
-
-- **Modo companion:** escritório com a IDE fechada — aí sim o daemon separado.
-- **Histórico e métricas:** exige persistência e decisões de privacidade/TTL.
-- **Mais adaptadores:** Cursor Agent, Gemini CLI — a camada de normalização já está pronta para isso.
-- **Escritório vivo:** agentes que caminham e interagem — onde uma engine gráfica passa a se justificar.
-- **Som:** desligado por padrão, sempre.
+- **Registros locais antes de hooks.** Zero configuração e cobertura de todas as superfícies. Custo: a espera por aprovação só é exata com hooks.
+- **Polling em vez de `fs.watch`.** Comportamento igual em Windows, macOS e Linux, fora do workspace e em discos de rede. Custo: até ~1 s de latência, com poucos `stat` por segundo.
+- **Pixel art procedural.** Sem licença de assets, bundle leve, variedade infinita de bonecos. Custo: cada peça é código.
+- **Mesas fixas.** Memória espacial ("a mesa do meio é da Sora"). Custo: espaço ocioso com poucos agentes.
+- **Sem persistência.** Superfície de vazamento próxima de zero. Custo: o histórico é o que os registros das ferramentas ainda têm.
 
 ---
 
-*Agent Office · Documento de arquitetura v1.0*
+## 9. Próximos passos
+
+- Modo companion (escritório com a IDE fechada), extraindo o `StateStore` para um daemon.
+- Histórico e métricas por projeto (custo, tempo por tarefa), com política de retenção.
+- Leitura das sessões do Copilot Chat (`workspaceStorage/*/chatSessions/*.jsonl`) e do Copilot CLI.
+- Som (desligado por padrão, sempre).
+
+*Agent Office · Documento de arquitetura v2*

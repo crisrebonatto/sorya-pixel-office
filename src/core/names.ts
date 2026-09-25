@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { AgentKind, AgentSource, SOURCE_LABEL } from './types';
+import { AgentKind, AgentSource, SOURCE_SHORT } from './types';
 
 /**
  * Nomes das plaquinhas. Times com personas (ex.: Sora orquestra, Rick
@@ -171,7 +171,7 @@ export class NameDirectory {
     if (o[a.source]) return o[a.source];
     if (a.name) return a.name;
     if (a.source === 'claude' && this.mainPersona) return this.mainPersona;
-    return SOURCE_LABEL[a.source] || a.source;
+    return SOURCE_SHORT[a.source] || a.source;
   }
 }
 

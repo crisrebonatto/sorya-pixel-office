@@ -218,8 +218,11 @@
 
   function elapsed(t) {
     const start = t.startedAt || t.createdAt;
-    const end = t.completedAt || Date.now();
-    return fmtDur(end - start);
+    if (t.completedAt) {
+      const d = t.completedAt - start;
+      return d >= 1000 ? fmtDur(d) : clock(t.completedAt).slice(0, 5);
+    }
+    return fmtDur(Date.now() - start);
   }
 
   function fmtDur(ms) {
@@ -234,25 +237,27 @@
   // ── Feed ────────────────────────────────────────────────────────
   function renderFeed() {
     const ol = $('#feed ol');
-    const items = snapshot.activity.slice(-80);
-    const have = new Set();
-    for (const li of ol.children) have.add(li.dataset.id);
+    const items = snapshot.activity.slice(-80).sort((a, b) => b.at - a.at);
+    const keep = new Map();
+    for (const li of ol.children) keep.set(li.dataset.id, li);
     const wanted = new Set(items.map((it) => it.id));
-    for (const li of [...ol.children]) if (!wanted.has(li.dataset.id)) li.remove();
-    // Itens novos entram no topo; os antigos ficam onde estão.
-    for (const it of items) {
-      if (have.has(it.id)) continue;
-      const li = el('li', (it.kind || '') + ' new');
-      li.dataset.id = it.id;
-      li.style.setProperty('--src', AO.sourceInfo(it.source).color);
-      li.appendChild(el('time', null, clock(it.at)));
-      li.appendChild(el('span', 'who', it.agentName || ''));
-      li.appendChild(el('span', 'what', it.text));
-      li.title = (it.agentName || '') + ' ' + it.text;
-      li.onclick = () => select(it.agentId, true);
-      li.addEventListener('animationend', () => li.classList.remove('new'), { once: true });
-      ol.insertBefore(li, ol.firstChild);
-    }
+    for (const [id, li] of keep) if (!wanted.has(id)) li.remove();
+    // mais recente no topo; itens existentes só se movem se a ordem mudou
+    items.forEach((it, i) => {
+      let li = keep.get(it.id);
+      if (!li) {
+        li = el('li', (it.kind || '') + (ol.children.length ? ' new' : ''));
+        li.dataset.id = it.id;
+        li.style.setProperty('--src', AO.sourceInfo(it.source).color);
+        li.appendChild(el('time', null, clock(it.at)));
+        li.appendChild(el('span', 'who', it.agentName || ''));
+        li.appendChild(el('span', 'what', it.text));
+        li.title = (it.agentName || '') + ' ' + it.text;
+        li.onclick = () => select(it.agentId, true);
+        li.addEventListener('animationend', () => li.classList.remove('new'), { once: true });
+      }
+      if (ol.children[i] !== li) ol.insertBefore(li, ol.children[i] || null);
+    });
   }
 
   function clock(ms) {
@@ -413,6 +418,12 @@
     if (vscode) vscode.setState(Object.assign(saved, { demo: !!demo }));
   }
   $('#btn-demo').onclick = () => setDemo(!demo);
+  for (const b of document.querySelectorAll('.column .clear')) {
+    b.onclick = (e) => {
+      e.stopPropagation();
+      if (vscode && !demo) vscode.postMessage({ type: 'clearFinished' });
+    };
+  }
   $('#btn-demo-empty').onclick = () => setDemo(true);
 
   // ── Feed lateral: só aparece quando não rouba tamanho do escritório ──

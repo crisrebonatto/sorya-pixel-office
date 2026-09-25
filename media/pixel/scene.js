@@ -140,7 +140,9 @@
     let ambient = 0.5;
     const reserved = new Map(); // spotId -> actorId
 
-    const view = { scale: 1, ox: 0, oy: 0, zoom: 0, panX: 0, panY: 0, dpr: 1, cssW: 0, cssH: 0 };
+    const view = { scale: 1, ox: 0, oy: 0, zoom: 0, panX: 0, panY: 0, dpr: 1, cssW: 0, cssH: 0, userZoom: false };
+    // Foco da câmera em painéis estreitos: as mesas do open space.
+    const FOCUS = { x: WORLD.PX_W / 2, y: 7 * T };
 
     // ── Entrada de estado ───────────────────────────────────────────
     function setAgents(list, ghostList) {
@@ -421,7 +423,7 @@
       }
       const coffeeBusy = [...actors.values()].some((x) => x.mode === 'arrived' && x.target && x.target.spot && x.target.spot.kind === 'coffee');
       const lightsOn = actors.size > 0;
-      const env = { t, now, agentsByDesk, stats, spark, coffeeBusy, lightsOn };
+      const env = { t, now, agentsByDesk, stats, spark, coffeeBusy, lightsOn, dominant: dominantState() };
       WORLD.drawDynamicBackground(bctx, env);
 
       // lista y-sort: mobília + atores
@@ -488,6 +490,17 @@
       drawLighting(env, hour, t);
 
       present(t);
+    }
+
+    // Estado mais urgente entre os agentes (para telas ambiente).
+    const URGENCY = ['error', 'waiting', 'running', 'writing', 'reading', 'searching', 'thinking', 'done', 'idle'];
+    function dominantState() {
+      let best = 'idle';
+      for (const actor of actors.values()) {
+        const st = actor.agent.state;
+        if (URGENCY.indexOf(st) >= 0 && URGENCY.indexOf(st) < URGENCY.indexOf(best)) best = st;
+      }
+      return actors.size ? best : null;
     }
 
     function headY(actor) {
@@ -569,6 +582,20 @@
       display.width = Math.floor(view.cssW * dpr);
       display.height = Math.floor(view.cssH * dpr);
       const fit = Math.min(display.width / WORLD.PX_W, display.height / WORLD.PX_H);
+      if (!view.userZoom) {
+        // Painel estreito (barra lateral): aproxima até ficar legível e
+        // centra nas mesas; arrastar move a câmera, ▣ volta ao mapa inteiro.
+        if (fit / dpr < 0.95) {
+          view.zoom = Math.min(6, Math.ceil(Math.log((1.25 * dpr) / fit) / Math.log(1.25)));
+          const sc = fit * Math.pow(1.25, view.zoom);
+          view.panX = ((WORLD.PX_W / 2 - FOCUS.x) * sc) / dpr;
+          view.panY = ((WORLD.PX_H / 2 - FOCUS.y) * sc) / dpr;
+        } else {
+          view.zoom = 0;
+          view.panX = 0;
+          view.panY = 0;
+        }
+      }
       const scale = view.zoom ? fit * Math.pow(1.25, view.zoom) : fit;
       view.scale = scale;
       const w = WORLD.PX_W * scale;
@@ -646,7 +673,8 @@
         tag(pos.x, pos.y, g.label, null, 0.35, false, fontPx);
       }
 
-      const list = [...actors.values()].sort((a, b) => a.y - b.y);
+      const list = [...actors.values()].sort((a, b) => a.x - b.x);
+      const placed = [];
       for (const actor of list) {
         if (actor.alpha < 0.2) continue;
         const a = actor.agent;
@@ -654,7 +682,16 @@
         const info = AO.sourceInfo(a.source);
         const emphasis = actor.id === selected || actor.id === hover || actor.id === highlighted;
         const icon = iconFor(actor);
-        const top = tag(pos.x, pos.y, a.displayName || a.label, info.color, actor.alpha, emphasis, fontPx, a.state, icon);
+        // Plaquinhas vizinhas que colidem sobem um degrau (até dois).
+        const size = tagSize(a.displayName || a.label, info.color, fontPx, icon);
+        let y = pos.y;
+        for (let k = 0; k < 2; k++) {
+          const hit = placed.some((r) => pos.x - size.w / 2 < r.x2 && pos.x + size.w / 2 > r.x1 && y - size.h < r.y2 && y > r.y1);
+          if (!hit) break;
+          y -= size.h + 2 * view.dpr;
+        }
+        placed.push({ x1: pos.x - size.w / 2 - view.dpr, x2: pos.x + size.w / 2 + view.dpr, y1: y - size.h, y2: y });
+        const top = tag(pos.x, y, a.displayName || a.label, info.color, actor.alpha, emphasis, fontPx, a.state, icon);
         if (a.state === 'waiting') bang(pos.x, top, fontPx, t + actor.seed * 91);
       }
 
@@ -711,6 +748,13 @@
           if (icon[j][i] === '#') dctx.fillRect(Math.round(x + i * px), Math.round(y + j * px), px, px);
         }
       }
+    }
+
+    function tagSize(text, color, fontPx, icon) {
+      const dpr = view.dpr;
+      const px = Math.max(1, Math.round(fontPx / 9));
+      const tw = dctx.measureText(String(text || '').slice(0, 22)).width;
+      return { w: tw + 10 * dpr + (color ? 7 * dpr : 0) + (icon ? 7 * px + 5 * dpr : 0), h: fontPx + 5 * dpr };
     }
 
     function tag(cx, cy, text, color, alpha, emphasis, fontPx, state, icon) {
@@ -844,6 +888,7 @@
     );
 
     function zoomBy(step) {
+      view.userZoom = true;
       if (step === 0) {
         view.zoom = 0;
         view.panX = 0;

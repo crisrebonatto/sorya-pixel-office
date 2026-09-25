@@ -573,7 +573,12 @@ export class StateStore extends EventEmitter {
       agents: out,
       tasks: [...this.tasks.values()].map((t) => Object.assign({}, t)),
       ghosts: this.desks.activeGhosts() as GhostDesk[],
-      activity: this.activity.slice(-150),
+      // reconstrução lê arquivo por arquivo: o feed sai em ordem de horário
+      activity: this.activity
+        .slice(-150)
+        .map((a, i) => ({ a, i }))
+        .sort((x, y) => x.a.at - y.a.at || x.i - y.i)
+        .map((x) => x.a),
       sources: [...this.sources.values()],
       spark: this.spark.slice(),
       host: Object.assign({}, this.host, { hooks: [...this.hookSources.keys()].filter((s) => this.hooksActive(s)) })

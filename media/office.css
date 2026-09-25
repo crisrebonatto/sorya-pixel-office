@@ -299,6 +299,18 @@ button.on { background: var(--accent); border-color: var(--accent); color: #fff;
   padding: 0 6px;
   font-variant-numeric: tabular-nums;
 }
+.h-tools { display: inline-flex; align-items: center; gap: 6px; }
+.column .clear {
+  font: inherit;
+  font-size: 9px;
+  letter-spacing: .08em;
+  padding: 0 5px;
+  line-height: 14px;
+  color: var(--text-faint);
+  border-color: transparent;
+  visibility: hidden;
+}
+.column:hover .clear { visibility: visible; }
 .cards {
   flex: 1 1 auto;
   overflow-y: auto;
