@@ -79,6 +79,26 @@ description: Rick — rick-construtor (antes sorya-fullstack-builder). Constrói
      No Antigravity e no Cursor, troque `code` por `antigravity` ou `cursor`.
 3. Recarregue a janela. A extensão aparece em **Extensions → Installed** e o ícone de prédio surge na Activity Bar.
 
+### Instalar ou atualizar pelo terminal (gh)
+
+Com o [GitHub CLI](https://cli.github.com) logado (`gh auth login`), dois comandos baixam a última Release e instalam por cima, sem abrir o navegador:
+
+```powershell
+# Windows (PowerShell)
+gh release download -R crisrebonatto/sorya-pixel-office -p "*.vsix" -O "$env:TEMP\agent-office.vsix" --clobber
+code --install-extension "$env:TEMP\agent-office.vsix" --force
+```
+
+```sh
+# macOS / Linux
+gh release download -R crisrebonatto/sorya-pixel-office -p '*.vsix' -O /tmp/agent-office.vsix --clobber && code --install-extension /tmp/agent-office.vsix --force
+```
+
+- Sem tag, o `gh` pega a última Release. Para uma versão específica, coloque a tag depois de `download` (ex.: `gh release download v0.3.1 -R …`).
+- `--clobber` sobrescreve o download anterior e `--force` atualiza a extensão sem perguntar.
+- No Antigravity e no Cursor, troque `code` por `antigravity` ou `cursor`.
+- Depois, rode **Developer: Reload Window**.
+
 ## Usar
 
 1. Instale a extensão (ou abra esta pasta no VS Code e pressione **F5**).
