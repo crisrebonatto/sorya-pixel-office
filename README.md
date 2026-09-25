@@ -66,7 +66,15 @@ description: Rick — rick-construtor (antes sorya-fullstack-builder). Constrói
 
 ## Instalar
 
-Baixe o `.vsix` da [última Release](https://github.com/crisrebonatto/sorya-pixel-office/releases/latest) e instale em **Extensions → `…` → Install from VSIX…** (VS Code, Antigravity ou Cursor), ou via `code --install-extension agent-office-v0.2.0.vsix`.
+1. Baixe o `agent-office-vX.Y.Z.vsix` em **Assets** na [última Release](https://github.com/crisrebonatto/sorya-pixel-office/releases/latest).
+2. Instale de um destes jeitos:
+   - **Pela interface** (VS Code, Antigravity ou Cursor): **Extensions** → `…` → **Install from VSIX…** → escolha o arquivo baixado.
+   - **Pelo terminal**, passando o caminho do arquivo (o comando procura na pasta atual):
+     ```powershell
+     code --install-extension "$env:USERPROFILE\Downloads\agent-office-v0.2.0.vsix"
+     ```
+     No Antigravity e no Cursor, troque `code` por `antigravity` ou `cursor`.
+3. Recarregue a janela. A extensão aparece em **Extensions → Installed** e o ícone de prédio surge na Activity Bar.
 
 ## Usar
 
