@@ -287,12 +287,7 @@
     const info = AO.sourceInfo(a.source);
 
     const head = el('div', 'd-head');
-    const look = AO.chars.lookFor(
-      a.kind === 'session' ? a.source + ':' + (a.displayName || a.project || a.id) : (a.displayName || a.type || '') + ':' + a.source,
-      a.source,
-      a.kind,
-      a.type
-    );
+    const look = AO.chars.lookFor(AO.scene.lookSeed(a), a.source, a.kind, a.type);
     const portrait = AO.chars.portrait(look, 3);
     portrait.className = 'd-portrait';
     head.appendChild(portrait);

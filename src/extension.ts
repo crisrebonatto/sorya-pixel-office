@@ -156,8 +156,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
   status.command = 'agentOffice.open';
   status.name = 'Agent Office';
-  const renderStatus = () => {
-    const snap = store.snapshot();
+  const renderStatus = (snap = store.snapshot()) => {
     const waiting = snap.agents.filter((a) => a.state === 'waiting');
     status.text = '$(organization) ' + snap.agents.length + (waiting.length ? '  $(bell-dot) ' + waiting.length : '');
     status.tooltip = snap.agents.length
@@ -166,7 +165,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     status.backgroundColor = waiting.length ? new vscode.ThemeColor('statusBarItem.warningBackground') : undefined;
     status.show();
   };
-  store.on('change', renderStatus);
+  store.on('change', (snap) => renderStatus(snap));
   renderStatus();
   context.subscriptions.push(status);
 

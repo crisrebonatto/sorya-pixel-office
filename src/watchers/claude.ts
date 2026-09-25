@@ -408,15 +408,21 @@ export class ClaudeWatcher {
   }
 
   start(): void {
-    this.transcripts.start();
-    this.sessions.start();
+    // Fichas de sessão primeiro: sessão de processo morto não deve entrar
+    // no escritório só porque o transcript dela ainda é recente.
     this.reaper = setInterval(() => this.reapSessions(), 3000);
+    void this.sessions.scan().then(() => {
+      if (!this.reaper) return; // parado no meio do caminho
+      this.sessions.start();
+      this.transcripts.start();
+    });
   }
 
   stop(): void {
     this.transcripts.stop();
     this.sessions.stop();
     if (this.reaper) clearInterval(this.reaper);
+    this.reaper = undefined;
   }
 
   status(): { found: boolean; tracked: number; lastSeen: number } {

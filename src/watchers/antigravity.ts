@@ -67,7 +67,7 @@ export class AntigravityWatcher {
   private tasks: FileTailer;
   private transcripts: FileTailer;
   private conversations: FileTailer;
-  private known = new Map<string, { ids: Set<string>; lastActive: number; idle: boolean }>();
+  private known = new Map<string, { ids: Set<string>; lastActive: number; idle: boolean; live: boolean }>();
   private tracker = new Set<string>();
   private trackerTimer: NodeJS.Timeout | undefined;
   private idleTimer: NodeJS.Timeout | undefined;
@@ -141,15 +141,20 @@ export class AntigravityWatcher {
   }
 
   private touch(conv: string, at: number, replay: boolean, events: NormalizedEvent[]): void {
-    const k = this.known.get(conv);
+    let k = this.known.get(conv);
     if (!k) {
-      this.known.set(conv, { ids: new Set(), lastActive: at, idle: false });
-      events.push({ ...this.base(conv, at, replay), kind: 'session-start' });
-    } else {
-      k.lastActive = Math.max(k.lastActive, at);
-      if (!replay) k.idle = false;
+      k = { ids: new Set(), lastActive: at, idle: false, live: false };
+      this.known.set(conv, k);
     }
-    if (!replay) this.lastActiveConv = conv;
+    // Histórico: o store decide se é recente. Ao vivo: (re)apresenta o agente
+    // a cada episódio de atividade — ele pode ter saído por ociosidade.
+    if (replay || k.idle || !k.live) events.push({ ...this.base(conv, at, replay), kind: 'session-start' });
+    k.lastActive = Math.max(k.lastActive, at);
+    if (!replay) {
+      k.idle = false;
+      k.live = true;
+      this.lastActiveConv = conv;
+    }
   }
 
   private onTaskMd(chunk: TailChunk): void {

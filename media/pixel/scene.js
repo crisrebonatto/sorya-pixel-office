@@ -112,8 +112,9 @@
 
   function lookSeed(agent) {
     // Sessões: aparência estável por fonte+projeto; subagentes: por nome.
-    if (agent.kind === 'session') return (agent.source || '') + ':' + (agent.displayName || agent.project || agent.id);
-    return (agent.displayName || agent.type || '') + ':' + (agent.source || '');
+    const name = agent.label || agent.displayName;
+    if (agent.kind === 'session') return (agent.source || '') + ':' + (name || agent.project || agent.id);
+    return (name || agent.type || '') + ':' + (agent.source || '');
   }
 
   // ── Controlador da cena ───────────────────────────────────────────
@@ -954,5 +955,5 @@
     };
   }
 
-  AO.scene = { mount, findPath };
+  AO.scene = { mount, findPath, lookSeed };
 })();
