@@ -31,6 +31,9 @@ export function relayEvent(port: number, token: string, source: string, body: un
  */
 export type HookHandler = (payload: unknown, source: string | undefined, relayed: boolean) => void;
 
+/** Rotas extras (modo navegador); devolve true se respondeu. */
+export type ExtraRoutes = (req: http.IncomingMessage, res: http.ServerResponse) => boolean;
+
 /**
  * Servidor local de eventos dos hooks.
  * Bind SEMPRE em 127.0.0.1 — nunca 0.0.0.0. Escutar na rede exporia o
@@ -40,8 +43,15 @@ export type HookHandler = (payload: unknown, source: string | undefined, relayed
  * Rotas:  POST /hook/<fonte>  (claude, codex, gemini, cursor, copilot…)
  *         POST /event         (compatível com a v1: payload do Claude Code)
  *         GET  /health        (sem dados; só confirma que é o Agent Office)
+ *         /office…            (modo navegador, ver officeWeb.ts)
  */
-export async function startEventServer(preferredPort: number, token: string, onEvent: HookHandler, strict = false): Promise<EventServer> {
+export async function startEventServer(
+  preferredPort: number,
+  token: string,
+  onEvent: HookHandler,
+  strict = false,
+  extra?: ExtraRoutes
+): Promise<EventServer> {
   const server = http.createServer((req, res) => {
     // Proteção contra DNS rebinding: só aceita Host local.
     const host = (req.headers.host || '').toLowerCase();
@@ -50,6 +60,7 @@ export async function startEventServer(preferredPort: number, token: string, onE
       res.end();
       return;
     }
+    if (extra && extra(req, res)) return;
     const url = (req.url || '').split('?')[0];
     if (req.method === 'GET' && url === '/health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });

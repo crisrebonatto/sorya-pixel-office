@@ -109,6 +109,7 @@ export interface Activity {
   agentId: string;
   agentName: string;
   source: AgentSource;
+  project?: string;
   kind: ActivityKind;
   text: string;
 }

@@ -241,9 +241,36 @@ export function tsOf(v: unknown, fallback: number): number {
   return fallback;
 }
 
+const projectCache = new Map<string, string | undefined>();
+
+/**
+ * Nome do projeto a partir do cwd: o nome da pasta, mas worktrees contam
+ * como o repositório de origem. Assim um subagente isolado em
+ * `<repo>/.claude/worktrees/agent-a4a9…` ou num `git worktree` aparece no
+ * projeto certo (e no filtro "projeto local").
+ */
 export function projectOf(cwd: unknown): string | undefined {
   const c = str(cwd);
   if (!c) return undefined;
-  const b = path.basename(c.replace(/\\/g, '/').replace(/\/+$/, ''));
-  return b || undefined;
+  if (projectCache.has(c)) return projectCache.get(c);
+  if (projectCache.size > 500) projectCache.clear();
+  const p = resolveProject(c);
+  projectCache.set(c, p);
+  return p;
+}
+
+function resolveProject(cwd: string): string | undefined {
+  const norm = cwd.replace(/\\/g, '/').replace(/\/+$/, '');
+  const claudeWt = /^(.*)\/\.claude\/worktrees\/[^/]+(?:\/|$)/.exec(norm);
+  if (claudeWt) return path.posix.basename(claudeWt[1]) || undefined;
+  try {
+    // worktree do git: o `.git` é um arquivo "gitdir: <repo>/.git/worktrees/<nome>"
+    const m = /^gitdir:\s*(.+?)\s*$/m.exec(fs.readFileSync(path.join(cwd, '.git'), 'utf8'));
+    const gitdir = m ? path.resolve(cwd, m[1]).replace(/\\/g, '/') : '';
+    const repo = /^(.*)\/\.git\/worktrees\/[^/]+$/.exec(gitdir);
+    if (repo) return path.posix.basename(repo[1]) || undefined;
+  } catch {
+    // sem .git, .git é pasta (repo normal) ou cwd de outra máquina
+  }
+  return path.posix.basename(norm) || undefined;
 }

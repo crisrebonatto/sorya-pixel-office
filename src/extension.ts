@@ -1,8 +1,9 @@
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { getOrCreateToken } from './server/auth';
+import { getOrCreateToken, VIEW_TOKEN_KEY } from './server/auth';
 import { EventServer, relayEvent, startEventServer } from './server/httpServer';
+import { createOfficeWeb, OfficeWeb } from './server/officeWeb';
 import { installHookScript, otherEndpoints, removeEndpoint, writeEndpoint } from './server/discovery';
 import { StateStore } from './core/stateStore';
 import { EventRouter } from './core/eventRouter';
@@ -11,6 +12,7 @@ import { Agent, AgentSource, NormalizedEvent, SOURCE_LABEL } from './core/types'
 import { normalizeHook, parseSource } from './adapters/hooks';
 import { runCodexTask, CodexRun } from './adapters/codex';
 import { ClaudeWatcher, claudeHome } from './watchers/claude';
+import { projectOf } from './watchers/tailer';
 import { CodexWatcher, codexHome } from './watchers/codex';
 import { GeminiWatcher, geminiHome } from './watchers/gemini';
 import { AntigravityWatcher, antigravityRoots } from './watchers/antigravity';
@@ -21,6 +23,7 @@ const RECENT_MS = 6 * 60 * 60 * 1000;
 
 let server: EventServer | undefined;
 let guardian: EventServer | undefined;
+let web: OfficeWeb | undefined;
 const disposers: Array<() => void> = [];
 const codexRuns: CodexRun[] = [];
 
@@ -69,8 +72,36 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       for (const ep of otherEndpoints()) relayEvent(ep.port, ep.token, sourceHint || 'claude', payload);
     }
   };
+  // Extras da UI: personas e os projetos desta janela (filtro "local").
+  const extras = () => ({ names: names.personas(), workspace: workspaceProjects() });
+  const decorated = (snap = store.snapshot()) => Object.assign({}, snap, extras());
+
+  // Modo navegador: o mesmo escritório em http://127.0.0.1:<porta>/office
+  const officeWeb = createOfficeWeb({
+    mediaPath: path.join(context.extensionPath, 'media'),
+    viewToken: await getOrCreateToken(context, VIEW_TOKEN_KEY),
+    port: () => server?.port ?? preferredPort,
+    snapshot: () => decorated(),
+    onAction: (msg) => {
+      if (msg.type === 'clearFinished') store.clearFinished();
+    }
+  });
+  web = officeWeb;
+  store.on('change', (snap) => {
+    if (officeWeb.clients()) officeWeb.broadcast(decorated(snap));
+  });
+  const openInBrowser = async () => {
+    if (!server) {
+      void vscode.window.showErrorMessage('Agent Office: o servidor local não está rodando.');
+      return;
+    }
+    // asExternalUri encaminha a porta em Remote/WSL/SSH; local, não muda nada.
+    const uri = await vscode.env.asExternalUri(vscode.Uri.parse(officeWeb.url(true)));
+    void vscode.env.openExternal(uri);
+  };
+
   try {
-    server = await startEventServer(preferredPort, token, onHook);
+    server = await startEventServer(preferredPort, token, onHook, false, officeWeb.handle);
     writeEndpoint(server.port, token, vscode.env.appName);
     store.host.port = server.port;
   } catch (err) {
@@ -82,7 +113,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const timer = setInterval(async () => {
       if (guardian) return;
       try {
-        guardian = await startEventServer(preferredPort, token, onHook, true);
+        guardian = await startEventServer(preferredPort, token, onHook, true, officeWeb.handle);
       } catch {
         // ainda ocupada por outra janela viva
       }
@@ -143,11 +174,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const provider = new OfficeViewProvider(
     context.extensionUri,
     store,
-    () => ({ names: names.personas() }),
+    extras,
     (msg) => {
       if (msg.type === 'clearFinished') store.clearFinished();
+      if (msg.type === 'openBrowser') void openInBrowser();
     }
   );
+  context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => store.refresh()));
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(OfficeViewProvider.viewType, provider, { webviewOptions: { retainContextWhenHidden: true } })
   );
@@ -172,6 +205,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // ── Comandos ──────────────────────────────────────────────────────
   context.subscriptions.push(
     vscode.commands.registerCommand('agentOffice.open', () => provider.openPanel()),
+
+    vscode.commands.registerCommand('agentOffice.openBrowser', openInBrowser),
+
+    vscode.commands.registerCommand('agentOffice.copyBrowserLink', async () => {
+      if (!server) return;
+      await vscode.env.clipboard.writeText(officeWeb.url(true));
+      void vscode.window.showInformationMessage('Agent Office: link copiado. Ele dá acesso de leitura ao escritório nesta máquina; o token sai da barra de endereço ao abrir.');
+    }),
 
     vscode.commands.registerCommand('agentOffice.demo', () => {
       provider.openPanel();
@@ -290,8 +331,19 @@ export function deactivate(): void {
   removeEndpoint();
   server?.dispose();
   guardian?.dispose();
+  web?.dispose();
   for (const d of disposers.splice(0)) d();
   for (const run of codexRuns) run.dispose();
+}
+
+/** Projetos abertos nesta janela, no mesmo formato de `agent.project`. */
+function workspaceProjects(): string[] {
+  const out = new Set<string>();
+  for (const f of vscode.workspace.workspaceFolders || []) {
+    const p = projectOf(f.uri.fsPath);
+    if (p) out.add(p);
+  }
+  return [...out];
 }
 
 /** Onde procurar fichas de agentes (personas). */

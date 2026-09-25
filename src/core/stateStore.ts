@@ -350,6 +350,11 @@ export class StateStore extends EventEmitter {
     }
   }
 
+  /** Emite um snapshot novo sem mudança de estado (ex.: pastas do workspace mudaram). */
+  refresh(): void {
+    this.changed();
+  }
+
   /** Reaplica a resolução de nomes (ex.: fichas de agentes mudaram). */
   renameAll(): void {
     for (const a of this.agents.values()) {
@@ -483,6 +488,7 @@ export class StateStore extends EventEmitter {
       agentId: agent.id,
       agentName: agent.label,
       source: agent.source,
+      project: agent.project,
       kind,
       text
     });
