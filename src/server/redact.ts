@@ -173,6 +173,11 @@ export function redactAction(toolName: string, toolInput: unknown): string {
     return 'atualizando o plano';
   }
   if (category === 'waiting') return 'perguntando a você';
+  // Codex: consulta a um comando que continua rodando; modo código (script)
+  if (toolName === 'write_stdin') return 'acompanhando o comando';
+  if (toolName === 'exec' && typeof toolInput === 'string') return 'rodando script';
+  if (toolName === 'wait') return 'aguardando o script';
+  if (toolName === 'command_status' || toolName === 'read_terminal') return 'acompanhando o comando';
 
   const file = fileOf(toolName, toolInput);
   if (category === 'writing') {

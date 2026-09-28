@@ -197,7 +197,11 @@ export interface NormalizedEvent {
 
 export type LiveDetail =
   | { t: 'cmd'; command: string }
-  | { t: 'out'; output: string; exitCode?: number; isError?: boolean }
+  /**
+   * Saída de um comando. `append`: pedaço novo de um comando que continua
+   * (Codex write_stdin, BashOutput do Claude); `running`: ainda não terminou.
+   */
+  | { t: 'out'; output: string; exitCode?: number; isError?: boolean; append?: boolean; running?: boolean }
   | { t: 'diff'; files: LiveFileDiff[]; pending?: boolean };
 
 export interface LiveFileDiff {
