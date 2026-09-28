@@ -3,6 +3,16 @@
 Formato: cada versão tem uma seção `## [x.y.z] — data`. O workflow de
 release usa a seção da versão como texto da Release no GitHub.
 
+## [0.4.1] — 2026-09-28
+
+Terminal ao vivo mais completo quando um agente chama outro (ex.: o Claude Code aciona o Codex ou o Antigravity via `agy`).
+
+- **Codex, comandos longos**: quando o comando continua rodando (testes, build), o Codex consulta a saída aos poucos (`write_stdin`). Agora cada pedaço entra na mesma entrada do comando original, até o código de saída. Se o comando começou antes de o terminal ser ligado, aparece como "comando em andamento".
+- **Codex, histórico novo ("paginado")**: comandos, edições e pedidos gravados como itens concluídos agora são lidos.
+- **Antigravity (IDE e `agy`)**: comandos (`run_command`) e edições (`write_to_file`, `replace_file_content`) entram no terminal; a saída aparece quando o registro dela traz. Formato fechado, best effort.
+- **Claude Code em segundo plano**: `Bash` com `run_in_background` + `BashOutput` viram uma entrada só, com a saída chegando.
+- No feed, as consultas do Codex aparecem como "acompanhando o comando" em vez de "rodando comando".
+
 ## [0.4.0] — 2026-09-25
 
 **Terminal ao vivo** (opt-in): no painel de cada agente, a aba **terminal** mostra os comandos que ele roda, a saída (testes, build) e os diffs de código, sem mostrar chaves nem dados sensíveis.

@@ -74,7 +74,7 @@ description: Rick — rick-construtor (antes sorya-fullstack-builder). Constrói
    - **Pela interface** (VS Code, Antigravity ou Cursor): **Extensions** → `…` → **Install from VSIX…** → escolha o arquivo baixado.
    - **Pelo terminal**, passando o caminho do arquivo (o comando procura na pasta atual):
      ```powershell
-     code --install-extension "$env:USERPROFILE\Downloads\agent-office-v0.4.0.vsix"
+     code --install-extension "$env:USERPROFILE\Downloads\agent-office-v0.4.1.vsix"
      ```
      No Antigravity e no Cursor, troque `code` por `antigravity` ou `cursor`.
 3. Recarregue a janela. A extensão aparece em **Extensions → Installed** e o ícone de prédio surge na Activity Bar.
@@ -130,7 +130,7 @@ Não mostra:
 - **Arquivos sensíveis**: `.env*`, chaves, credenciais, `.ssh/`, `.aws/`… aparecem só pelo nome. Acrescente outros em `agentOffice.liveTerminalHide` (ex.: `*.sql`).
 - **Leituras**: a saída de `cat`, `head`, `rg`, `env`, `printenv`, `gh auth token` e parecidos fica oculta. As ferramentas de leitura (Read, Grep, WebFetch) nunca entram.
 
-Cobre Claude Code e Codex. Tudo fica nesta máquina, em memória. O mascaramento pega os formatos comuns, mas não é infalível: uma senha que parece texto comum pode passar.
+Cobre Claude Code, Codex e Antigravity (IDE e `agy`; este em best effort, porque o formato é fechado). Também vale quando um agente chama outro: se o Claude aciona o Codex, o Codex aparece na mesa dele com o próprio terminal. Em comando longo (testes, build), a saída vai chegando na mesma entrada até o código de saída. Tudo fica nesta máquina, em memória. O mascaramento pega os formatos comuns, mas não é infalível: uma senha que parece texto comum pode passar.
 
 ### Escritório inteiro × projeto local
 
@@ -175,7 +175,7 @@ Interação:
 ```sh
 npm install
 npm run compile     # TypeScript → out/
-npm test            # 38 testes (parsers, hooks, store, nomes, redação, I/O)
+npm test            # 42 testes (parsers, hooks, store, nomes, redação, I/O)
 npm run preview     # gera dev/preview.html (webview real + demo) para abrir no navegador
 ```
 

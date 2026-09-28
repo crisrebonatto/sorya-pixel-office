@@ -62,13 +62,20 @@ export class LiveLog extends EventEmitter {
       for (const entry of list) {
         if (entry.status !== 'running') continue; // hook + registro: já veio
         const failed = d.isError === true || (d.exitCode !== undefined && d.exitCode !== 0);
-        entry.status = failed ? 'error' : 'ok';
+        if (!d.running) entry.status = failed ? 'error' : 'ok';
         if (d.exitCode !== undefined) entry.exitCode = d.exitCode;
         if (entry.kind === 'cmd' && !entry.hidden && d.output) {
           const o = formatOutput(d.output);
-          entry.lines = o.lines;
+          if (d.append && entry.lines.length) {
+            // pedaço novo de um comando que continua rodando
+            const all = entry.lines.concat(o.lines);
+            entry.omitted += o.omitted + Math.max(0, all.length - OUT_LINES);
+            entry.lines = all.slice(-OUT_LINES);
+          } else {
+            entry.lines = o.lines;
+            entry.omitted = o.omitted;
+          }
           entry.masked += o.count;
-          entry.omitted = o.omitted;
         }
         this.emit('entry', entry);
       }

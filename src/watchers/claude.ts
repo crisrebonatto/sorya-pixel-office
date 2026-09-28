@@ -41,6 +41,8 @@ export class ClaudeTranscriptParser {
   // tool_result não diz qual ferramenta foi: guarda nome (e, com o terminal
   // ao vivo ligado, a entrada das edições) por tool_use_id
   private tools = new Map<string, { name: string; input?: Record<string, unknown> }>();
+  // Bash em segundo plano: id do processo → chamada original (BashOutput traz a saída depois)
+  private background = new Map<string, string>();
   private started = false;
   private lastModel: string | undefined;
   private lastAt = 0;
@@ -160,7 +162,7 @@ export class ClaudeTranscriptParser {
         const rejected = /doesn't want to proceed with this tool use|tool use was rejected/i.test(text);
         const failed = block['is_error'] === true && !rejected;
         const ev: NormalizedEvent = { ...base, kind: failed ? 'tool-error' : 'tool-end', key };
-        if (liveSwitch.on && key && !rejected) ev.live = this.liveResult(key, text, tur, failed, str(line['cwd']));
+        if (liveSwitch.on && key && !rejected) ev.live = this.liveResult(key, text, tur, failed, str(line['cwd']), base, out);
         out.push(ev);
         if (key) this.tools.delete(key);
         // TaskCreate devolve o id da tarefa no resultado
@@ -291,7 +293,7 @@ export class ClaudeTranscriptParser {
   }
 
   private rememberTool(key: string, name: string, input: Record<string, unknown>): void {
-    this.tools.set(key, { name, input: liveSwitch.on && EDIT_TOOLS.has(name) ? input : undefined });
+    this.tools.set(key, { name, input: liveSwitch.on && (EDIT_TOOLS.has(name) || OUTPUT_TOOLS.has(name)) ? input : undefined });
     if (this.tools.size > 300) this.tools.delete(this.tools.keys().next().value as string);
   }
 
@@ -299,10 +301,28 @@ export class ClaudeTranscriptParser {
    * Conteúdo para o terminal ao vivo: saída de comando (Bash) ou diff de
    * edição (Edit/MultiEdit/Write). Leituras (Read, Grep, WebFetch…) nunca.
    */
-  private liveResult(key: string, text: string, tur: Record<string, unknown>, failed: boolean, cwd: string | undefined): LiveDetail | undefined {
+  private liveResult(
+    key: string,
+    text: string,
+    tur: Record<string, unknown>,
+    failed: boolean,
+    cwd: string | undefined,
+    base: NormalizedEvent,
+    out: NormalizedEvent[]
+  ): LiveDetail | undefined {
     const tool = this.tools.get(key);
     if (!tool) return undefined;
+    if (OUTPUT_TOOLS.has(tool.name)) {
+      this.backgroundOutput(tool.name, tool.input || {}, text, tur, base, out);
+      return undefined;
+    }
     if (SHELL_TOOLS.has(tool.name)) {
+      const bg = /running in background with ID:\s*([\w.-]+)/i.exec(text) || (str(tur['backgroundTaskId']) ? [null, str(tur['backgroundTaskId'])] : null);
+      if (bg && bg[1]) {
+        this.background.set(bg[1], key);
+        if (this.background.size > 100) this.background.delete(this.background.keys().next().value as string);
+        return { t: 'out', output: '', running: true };
+      }
       const hasStreams = typeof tur['stdout'] === 'string' || typeof tur['stderr'] === 'string';
       let output = hasStreams ? [str(tur['stdout']) || '', str(tur['stderr']) || ''].filter(Boolean).join('\n') : text;
       const code = /^Exit code (-?\d+)/.exec(text) || /^Exit code (-?\d+)/.exec(output);
@@ -330,6 +350,31 @@ export class ClaudeTranscriptParser {
     }
     if (!lines.length) return undefined;
     return { t: 'diff', files: [{ path, lines, created }] };
+  }
+
+  /** BashOutput/TaskOutput: próximo pedaço da saída de um Bash em segundo plano. */
+  private backgroundOutput(name: string, input: Record<string, unknown>, text: string, tur: Record<string, unknown>, base: NormalizedEvent, out: NormalizedEvent[]): void {
+    const id = str(input['bash_id']) || str(input['shell_id']) || str(input['task_id']) || str(tur['taskId']);
+    if (!id) return;
+    let target = this.background.get(id);
+    if (!target) {
+      target = 'bg:' + id;
+      out.push({ ...base, kind: 'heartbeat', key: target, live: { t: 'cmd', command: '(comando em segundo plano · ' + id + ')' } });
+      this.background.set(id, target);
+    }
+    const tag = (n: string) => {
+      const m = new RegExp('<' + n + '>([\\s\\S]*?)</' + n + '>').exec(text);
+      return m ? m[1].replace(/^\n|\n$/g, '') : undefined;
+    };
+    const status = (tag('status') || str(tur['status']) || '').toLowerCase();
+    const code = tag('exit_code') ?? tag('exitCode');
+    const exitCode = code !== undefined && /^-?\d+$/.test(code.trim()) ? Number(code.trim()) : num(tur['exitCode']);
+    const tagged = tag('stdout') !== undefined || tag('stderr') !== undefined || tag('output') !== undefined;
+    const output = tagged ? [tag('stdout'), tag('stderr'), tag('output')].filter((x) => x).join('\n') : text;
+    const running = status === 'running' || (exitCode === undefined && !/completed|failed|killed|done/.test(status));
+    // BashOutput devolve só o que é novo; TaskOutput devolve tudo
+    out.push({ ...base, kind: 'heartbeat', key: target, live: { t: 'out', output, exitCode, isError: status === 'failed', running: running || undefined, append: name === 'BashOutput' || undefined } });
+    if (!running) this.background.delete(id);
   }
 
   private approvalLikely(tool: string): boolean {
@@ -375,6 +420,7 @@ export class ClaudeTranscriptParser {
 
 const SHELL_TOOLS = new Set(['Bash', 'PowerShell']);
 const EDIT_TOOLS = new Set(['Edit', 'MultiEdit', 'Write']);
+const OUTPUT_TOOLS = new Set(['BashOutput', 'TaskOutput']);
 
 /** Texto de um tool_result (string ou blocos {type:'text'}). */
 function resultText(content: unknown): string {

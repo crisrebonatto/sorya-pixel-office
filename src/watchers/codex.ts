@@ -22,6 +22,10 @@ export class CodexRolloutParser {
   private approval: string | undefined;
   private tokens = { tin: 0, tout: 0 };
   private calls = new Map<string, string>();
+  // comando longo (unified exec): a saída chega aos pedaços por write_stdin,
+  // que só diz o número da sessão. sessão → chamada do exec_command original
+  private sessions = new Map<string, string>();
+  private stdinCalls = new Map<string, string>();
   private planSize = 0;
   private cwd: string | undefined;
   private base: Partial<NormalizedEvent> = {};
@@ -126,6 +130,9 @@ export class CodexRolloutParser {
         case 'error':
           out.push({ ...base, kind: 'tool-error', action: clip('erro: ' + (str(payload['message']) || ''), 60) });
           break;
+        case 'item_completed':
+          this.itemCompleted(obj(payload['item']), base, out);
+          break;
         default:
           out.push({ ...base, kind: 'heartbeat' });
       }
@@ -151,6 +158,10 @@ export class CodexRolloutParser {
           needsApproval: this.approval === 'untrusted' && categorizeTool(name) !== 'reading'
         };
         if (liveSwitch.on) ev.live = this.liveCall(name, input);
+        if (name === 'write_stdin' && key) {
+          const sid = obj(input)['session_id'];
+          if (sid !== undefined && sid !== null) this.stdinCalls.set(key, String(sid));
+        }
         out.push(ev);
         if (name === 'update_plan') this.plan(obj(input), base, out);
       } else if (t === 'function_call_output' || t === 'custom_tool_call_output') {
@@ -160,9 +171,12 @@ export class CodexRolloutParser {
         const failed = (code && code[1] !== '0') || /^(error|apply_patch verification failed)/i.test(output.trim());
         const ev: NormalizedEvent = { ...base, kind: failed ? 'tool-error' : 'tool-end', key };
         const name = key ? this.calls.get(key) : undefined;
-        if (liveSwitch.on && name) ev.live = liveOutput(name, output, !!failed);
+        if (liveSwitch.on && name && key) this.liveResult(name, key, output, !!failed, ev, base, out);
         out.push(ev);
-        if (key) this.calls.delete(key);
+        if (key) {
+          this.calls.delete(key);
+          this.stdinCalls.delete(key);
+        }
       } else if (t === 'local_shell_call') {
         const action = obj(payload['action']);
         const key = str(payload['call_id']);
@@ -178,6 +192,68 @@ export class CodexRolloutParser {
       }
     }
     return out;
+  }
+
+  /**
+   * Saída de uma chamada para o terminal ao vivo. exec_command que continua
+   * rodando devolve "Process running with session ID N"; os write_stdin
+   * seguintes (mesmo N) trazem os próximos pedaços da saída.
+   */
+  private liveResult(name: string, key: string, output: string, failed: boolean, ev: NormalizedEvent, base: NormalizedEvent, out: NormalizedEvent[]): void {
+    if (name === 'write_stdin') {
+      const sid = this.stdinCalls.get(key);
+      if (!sid) return;
+      const r = liveOutput('exec_command', output, failed);
+      if (!r || r.t !== 'out') return;
+      let target = this.sessions.get(sid);
+      if (!target) {
+        // o comando começou antes (terminal desligado ou leitura no meio)
+        target = 'session:' + sid;
+        out.push({ ...base, kind: 'heartbeat', key: target, live: { t: 'cmd', command: '(comando em andamento · sessão ' + sid + ')' } });
+        this.sessions.set(sid, target);
+      }
+      out.push({ ...base, kind: 'heartbeat', key: target, live: { ...r, append: true } });
+      if (!r.running) this.sessions.delete(sid);
+      return;
+    }
+    const r = liveOutput(name, output, failed);
+    if (!r) return;
+    ev.live = r;
+    const sid = /Process running with session ID (\d+)/.exec(output);
+    if (sid && r.t === 'out' && r.running) this.sessions.set(sid[1], key);
+  }
+
+  /** Histórico "paginado" do Codex: comandos, edições e pedidos chegam como itens concluídos. */
+  private itemCompleted(item: Record<string, unknown>, base: NormalizedEvent, out: NormalizedEvent[]): void {
+    const type = str(item['type']);
+    const id = str(item['id']);
+    if (type === 'UserMessage') {
+      const text = (Array.isArray(item['content']) ? (item['content'] as unknown[]) : [])
+        .map((c) => obj(c))
+        .filter((c) => str(c['type']) === 'text')
+        .map((c) => str(c['text']) || '')
+        .join('\n');
+      const title = promptTitle(text);
+      if (title) out.push({ ...base, kind: 'prompt', taskTitle: title, key: 'u:' + (id || base.at) });
+      return;
+    }
+    if (!liveSwitch.on || !id) {
+      out.push({ ...base, kind: 'heartbeat' });
+      return;
+    }
+    if (type === 'CommandExecution') {
+      const command = commandOf({ command: item['command'] });
+      if (!command) return;
+      const status = str(item['status']) || '';
+      const output = str(item['aggregated_output']) ?? [str(item['stdout']) || '', str(item['stderr']) || ''].filter(Boolean).join('\n');
+      out.push({ ...base, kind: 'heartbeat', key: id, live: { t: 'cmd', command } });
+      out.push({ ...base, kind: 'heartbeat', key: id, live: { t: 'out', output, exitCode: num(item['exit_code']), isError: status === 'failed' || status === 'declined' } });
+    } else if (type === 'FileChange') {
+      const files = this.changesToDiffs(obj(item['changes']));
+      if (files.length) out.push({ ...base, kind: 'heartbeat', key: id, live: { t: 'diff', files } });
+    } else {
+      out.push({ ...base, kind: 'heartbeat' });
+    }
   }
 
   /** Comando (shell/exec_command) ou patch (apply_patch) para o terminal ao vivo. */
@@ -198,10 +274,13 @@ export class CodexRolloutParser {
     for (const [file, raw] of Object.entries(changes)) {
       const c = obj(raw);
       const path = relativeTo(file, this.cwd);
-      if (c['add']) files.push({ path, created: true, lines: (str(obj(c['add'])['content']) || '').split('\n').map((l) => '+' + l) });
-      else if (c['delete']) files.push({ path, deleted: true, lines: [] });
-      else if (c['update']) {
-        const u = obj(c['update']);
+      // dois formatos: {add:{content}} (evento antigo) e {type:'add', content} (item)
+      const kind = str(c['type']) || (c['add'] ? 'add' : c['delete'] ? 'delete' : c['update'] ? 'update' : '');
+      const body = str(c['type']) ? c : obj(c[kind]);
+      if (kind === 'add') files.push({ path, created: true, lines: (str(body['content']) || '').split('\n').map((l) => '+' + l) });
+      else if (kind === 'delete') files.push({ path, deleted: true, lines: [] });
+      else if (kind === 'update') {
+        const u = body;
         const diff = (str(u['unified_diff']) || '').split('\n').filter((l) => !/^(---|\+\+\+) /.test(l));
         files.push({ path: relativeTo(str(u['move_path']) || file, this.cwd), lines: diff });
       }
@@ -260,8 +339,11 @@ function liveOutput(name: string, raw: string, failed: boolean): LiveDetail | un
     if (code) exitCode = Number(code[1]);
     const at = raw.indexOf('Output:\n');
     if (at >= 0) output = raw.slice(at + 'Output:\n'.length);
+    else if (/^Output:\s*$/m.test(raw)) output = '';
   }
-  return { t: 'out', output, exitCode, isError: failed };
+  const r: LiveDetail = { t: 'out', output, exitCode, isError: failed };
+  if (exitCode === undefined && /Process running with session ID \d+/.test(raw)) r.running = true;
+  return r;
 }
 
 function safeParse(s: string): unknown {
