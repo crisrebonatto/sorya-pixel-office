@@ -1,9 +1,10 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { AgentSource, NormalizedEvent, TaskStatus } from '../core/types';
+import { AgentSource, LiveDetail, NormalizedEvent, TaskStatus } from '../core/types';
+import { linesFromReplace, liveSwitch } from '../core/live';
 import { categorizeTool, clip, fileOf, promptTitle, redactAction } from '../server/redact';
-import { FileTailer, TailChunk, obj, parseJson, str, tsOf } from './tailer';
+import { FileTailer, TailChunk, num, obj, parseJson, str, tsOf } from './tailer';
 
 /**
  * Antigravity (IDE, app 2.0 e CLI `agy`) não publica API de estado. O que
@@ -66,6 +67,7 @@ function conversationOf(file: string): string | undefined {
 export class AntigravityWatcher {
   private tasks: FileTailer;
   private transcripts: FileTailer;
+  private lastCmd = new Map<string, string>(); // conversa → chamada do último run_command
   private conversations: FileTailer;
   private known = new Map<string, { ids: Set<string>; lastActive: number; idle: boolean; live: boolean }>();
   private tracker = new Set<string>();
@@ -204,12 +206,47 @@ export class AntigravityWatcher {
         const c = obj(raw);
         const name = str(c['name']) || str(obj(c['function'])['name']) || 'tool';
         const args = c['args'] ?? c['arguments'] ?? obj(c['function'])['arguments'];
-        events.push({ ...base, kind: 'tool-start', tool: name, state: categorizeTool(name), action: redactAction(name, args), file: fileOf(name, args), key: key + ':' + i });
+        const ev: NormalizedEvent = { ...base, kind: 'tool-start', tool: name, state: categorizeTool(name), action: redactAction(name, args), file: fileOf(name, args), key: key + ':' + i };
+        if (liveSwitch.on) {
+          ev.live = liveCall(name, parseArgs(args));
+          if (ev.live && ev.live.t === 'cmd') this.lastCmd.set(conv, ev.key!);
+        }
+        events.push(ev);
       });
+      if (liveSwitch.on) this.liveStepOutput(conv, step, type, status, key, base, events);
       if (/ERROR|FAIL/.test(status)) events.push({ ...base, kind: 'tool-error', key: key + ':0' });
       else if (!calls.length && /DONE|COMPLETE|SUCCESS/.test(status) && type.includes('PLANNER')) events.push({ ...base, kind: 'heartbeat' });
     }
     this.flush(events);
+  }
+
+  /**
+   * Saída de comando, quando o transcript traz: passos RUN_COMMAND
+   * (combined_output) e COMMAND_STATUS (combined/delta) de comando longo.
+   * Formato fechado: procura os campos conhecidos em snake_case e camelCase.
+   */
+  private liveStepOutput(conv: string, step: Record<string, unknown>, type: string, status: string, key: string, base: NormalizedEvent, events: NormalizedEvent[]): void {
+    if (!/RUN_COMMAND|COMMAND_STATUS/.test(type)) return;
+    const rc = obj(step['run_command'] ?? step['runCommand']);
+    const cs = obj(step['command_status'] ?? step['commandStatus']);
+    const co = obj(rc['combined_output'] ?? rc['combinedOutput']);
+    const full = str(co['full']) ?? str(cs['combined']);
+    const delta = full === undefined ? str(co['delta']) ?? str(cs['delta']) : undefined;
+    const output = full ?? delta ?? str(step['output']) ?? (typeof step['content'] === 'string' ? (step['content'] as string) : undefined);
+    const exitCode = num(rc['exit_code'] ?? rc['exitCode'] ?? cs['exit_code'] ?? cs['exitCode']);
+    const commandLine = str(rc['command_line']) ?? str(rc['commandLine']);
+    let target = this.lastCmd.get(conv);
+    if (commandLine && !target) {
+      // não vimos a chamada (leitura começou no meio): o passo traz o comando
+      target = key + ':cmd';
+      events.push({ ...base, kind: 'heartbeat', key: target, live: { t: 'cmd', command: commandLine } });
+      this.lastCmd.set(conv, target);
+    }
+    if (!target || output === undefined) return;
+    const stateText = String(cs['status'] ?? rc['status'] ?? status).toUpperCase();
+    const running = exitCode === undefined && /RUNNING|IN_PROGRESS|PENDING/.test(stateText);
+    const live: LiveDetail = { t: 'out', output, exitCode, isError: /ERROR|FAIL/.test(status), running: running || undefined, append: delta !== undefined || undefined };
+    events.push({ ...base, kind: 'heartbeat', key: target, live });
   }
 
   private onConversation(chunk: TailChunk): void {
@@ -277,3 +314,46 @@ export class AntigravityWatcher {
   }
 }
 
+function parseArgs(args: unknown): Record<string, unknown> {
+  if (typeof args === 'string') {
+    try {
+      return obj(JSON.parse(args));
+    } catch {
+      return {};
+    }
+  }
+  return obj(args);
+}
+
+/** Comando e edições do Antigravity (nomes e campos das ferramentas dele). */
+function liveCall(name: string, a: Record<string, unknown>): LiveDetail | undefined {
+  if (name === 'run_command') {
+    const command = str(a['CommandLine']) ?? str(a['command_line']) ?? str(a['command']);
+    return command ? { t: 'cmd', command } : undefined;
+  }
+  const file = str(a['TargetFile']) ?? str(a['target_file']);
+  if (!file) return undefined;
+  if (name === 'write_to_file') {
+    const content = str(a['CodeContent']) ?? str(a['code_content']) ?? '';
+    return { t: 'diff', files: [{ path: file, created: true, lines: content.split('\n').map((l) => '+' + l) }] };
+  }
+  if (name === 'replace_file_content' || name === 'multi_replace_file_content') {
+    let chunks = a['ReplacementChunks'] ?? a['replacement_chunks'];
+    if (typeof chunks === 'string') {
+      try {
+        chunks = JSON.parse(chunks);
+      } catch {
+        chunks = [];
+      }
+    }
+    const lines: string[] = [];
+    for (const raw of Array.isArray(chunks) ? chunks : [chunks]) {
+      const c = obj(raw);
+      const from = str(c['TargetContent']) ?? str(c['target_content']);
+      const to = str(c['ReplacementContent']) ?? str(c['replacement_content']) ?? '';
+      if (from !== undefined) lines.push(...linesFromReplace(from, to));
+    }
+    return lines.length ? { t: 'diff', files: [{ path: file, lines }] } : undefined;
+  }
+  return undefined;
+}

@@ -246,3 +246,143 @@ test('parsers: Claude e Codex anexam comando, saída e diff só com o terminal l
     liveSwitch.on = false;
   }
 });
+
+// Passa as linhas por um parser e pelo LiveLog, como a extensão faz.
+function runLive(parse, rows) {
+  const log = new LiveLog();
+  log.setEnabled(true);
+  try {
+    for (const r of rows) for (const e of parse(r)) if (e.live) log.ingest(e);
+    return log.snapshot();
+  } finally {
+    log.setEnabled(false);
+  }
+}
+
+test('Codex: comando longo (exec_command + write_stdin) vira uma entrada que vai crescendo', () => {
+  const { redactAction } = require('../out/server/redact');
+  assert.equal(redactAction('write_stdin', { session_id: 7, chars: '' }), 'acompanhando o comando');
+  const c = new CodexRolloutParser();
+  const ts = (s) => '2026-09-25T10:00:' + String(s).padStart(2, '0') + 'Z';
+  const rows = [
+    { timestamp: ts(0), type: 'session_meta', payload: { id: 'th2', cwd: '/home/u/app' } },
+    { timestamp: ts(1), type: 'response_item', payload: { type: 'function_call', name: 'exec_command', call_id: 'c1', arguments: JSON.stringify({ cmd: 'pnpm test' }) } },
+    { timestamp: ts(11), type: 'response_item', payload: { type: 'function_call_output', call_id: 'c1', output: 'Chunk ID: a1\nWall time: 10.0 seconds\nProcess running with session ID 7\nOutput:\nRUN v2.1\n ✓ a.test.ts (3)' } },
+    { timestamp: ts(12), type: 'response_item', payload: { type: 'function_call', name: 'write_stdin', call_id: 'c2', arguments: JSON.stringify({ session_id: 7, chars: '' }) } },
+    { timestamp: ts(22), type: 'response_item', payload: { type: 'function_call_output', call_id: 'c2', output: 'Chunk ID: a2\nWall time: 10.0 seconds\nProcess running with session ID 7\nOutput:\n ✓ b.test.ts (5)' } },
+    { timestamp: ts(23), type: 'response_item', payload: { type: 'function_call', name: 'write_stdin', call_id: 'c3', arguments: JSON.stringify({ session_id: 7, chars: '' }) } },
+    { timestamp: ts(25), type: 'response_item', payload: { type: 'function_call_output', call_id: 'c3', output: 'Chunk ID: a3\nWall time: 2.0 seconds\nProcess exited with code 1\nOutput:\n ✕ c.test.ts\nTests  1 failed | 8 passed' } }
+  ];
+  const entries = runLive((r) => { liveSwitch.on = true; return c.parse(r, false); }, rows);
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].title, 'pnpm test');
+  assert.equal(entries[0].status, 'error');
+  assert.equal(entries[0].exitCode, 1);
+  assert.deepEqual(entries[0].lines, ['RUN v2.1', ' ✓ a.test.ts (3)', ' ✓ b.test.ts (5)', ' ✕ c.test.ts', 'Tests  1 failed | 8 passed']);
+
+  // write_stdin de um comando que começou antes: entrada "em andamento"
+  const c2 = new CodexRolloutParser();
+  const late = runLive((r) => { liveSwitch.on = true; return c2.parse(r, false); }, [
+    rows[0],
+    { timestamp: ts(30), type: 'response_item', payload: { type: 'function_call', name: 'write_stdin', call_id: 'd1', arguments: JSON.stringify({ session_id: 9, chars: '' }) } },
+    { timestamp: ts(31), type: 'response_item', payload: { type: 'function_call_output', call_id: 'd1', output: 'Wall time: 1 seconds\nProcess running with session ID 9\nOutput:\nbuilding…' } }
+  ]);
+  assert.equal(late.length, 1);
+  assert.equal(late[0].title, '(comando em andamento · sessão 9)');
+  assert.equal(late[0].status, 'running');
+  assert.deepEqual(late[0].lines, ['building…']);
+});
+
+test('Codex: histórico paginado (item_completed) traz comando, diff e pedido sem duplicar', () => {
+  const c = new CodexRolloutParser();
+  const rows = [
+    { timestamp: '2026-09-25T10:00:00Z', type: 'session_meta', payload: { id: 'th3', cwd: '/home/u/app' } },
+    { timestamp: '2026-09-25T10:00:01Z', type: 'event_msg', payload: { type: 'item_completed', item: { type: 'UserMessage', id: 'm1', content: [{ type: 'text', text: 'Corrigir o arredondamento' }] } } },
+    { timestamp: '2026-09-25T10:00:02Z', type: 'response_item', payload: { type: 'function_call', name: 'exec_command', call_id: 'x1', arguments: JSON.stringify({ cmd: 'npm test' }) } },
+    { timestamp: '2026-09-25T10:00:05Z', type: 'event_msg', payload: { type: 'item_completed', item: { type: 'CommandExecution', id: 'x1', command: ['bash', '-lc', 'npm test'], status: 'completed', aggregated_output: '3 passed', exit_code: 0 } } },
+    { timestamp: '2026-09-25T10:00:06Z', type: 'event_msg', payload: { type: 'item_completed', item: { type: 'CommandExecution', id: 'x2', command: ['pwsh', '-Command', 'dotnet build'], status: 'failed', aggregated_output: 'erro CS1002', exit_code: 1 } } },
+    { timestamp: '2026-09-25T10:00:07Z', type: 'event_msg', payload: { type: 'item_completed', item: { type: 'FileChange', id: 'p1', changes: { '/home/u/app/src/a.ts': { type: 'update', unified_diff: '@@ -1 +1 @@\n-a\n+b', move_path: null } } } } }
+  ];
+  liveSwitch.on = true;
+  let prompts;
+  try {
+    const events = rows.flatMap((r) => c.parse(r, false));
+    prompts = events.filter((e) => e.kind === 'prompt').map((e) => e.taskTitle);
+  } finally {
+    liveSwitch.on = false;
+  }
+  assert.deepEqual(prompts, ['Corrigir o arredondamento']);
+  const c2 = new CodexRolloutParser();
+  const entries = runLive((r) => { liveSwitch.on = true; return c2.parse(r, false); }, rows);
+  assert.deepEqual(entries.map((e) => [e.kind, e.title, e.status]), [
+    ['cmd', 'npm test', 'ok'],
+    ['cmd', 'dotnet build', 'error'],
+    ['diff', 'src/a.ts', 'ok']
+  ]);
+  assert.deepEqual(entries[0].lines, ['3 passed']);
+});
+
+test('Antigravity: run_command e edições dos passos, saída dos passos de comando', () => {
+  const { AntigravityWatcher } = require('../out/watchers/antigravity');
+  const fs = require('fs');
+  const os = require('os');
+  const path = require('path');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ao-ag-live-'));
+  const dir = path.join(home, '.gemini', 'antigravity', 'brain', 'conv1', '.system_generated', 'logs');
+  fs.mkdirSync(dir, { recursive: true });
+  const steps = [
+    { step_index: 1, type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE', status: 'DONE', created_at: new Date().toISOString(), tool_calls: [{ name: 'run_command', args: { CommandLine: 'npm run lint', Cwd: '/home/u/app' } }] },
+    { step_index: 2, type: 'CORTEX_STEP_TYPE_RUN_COMMAND', status: 'DONE', created_at: new Date().toISOString(), run_command: { command_line: 'npm run lint', exit_code: 0, combined_output: { full: '✔ sem problemas' } } },
+    {
+      step_index: 3,
+      type: 'CORTEX_STEP_TYPE_PLANNER_RESPONSE',
+      status: 'DONE',
+      created_at: new Date().toISOString(),
+      tool_calls: [
+        { name: 'replace_file_content', args: JSON.stringify({ TargetFile: '/home/u/app/src/PedidoDialog.tsx', ReplacementChunks: [{ TargetContent: 'const x = 1;', ReplacementContent: 'const x = 2;' }] }) },
+        { name: 'write_to_file', args: { TargetFile: '/home/u/app/src/novo.ts', CodeContent: 'export const y = 1;' } }
+      ]
+    }
+  ];
+  fs.writeFileSync(path.join(dir, 'transcript.jsonl'), steps.map((s) => JSON.stringify(s)).join('\n') + '\n');
+  const events = [];
+  liveSwitch.on = true;
+  const w = new AntigravityWatcher((evs) => events.push(...evs), { recentMs: 3600000, home: () => home });
+  return w.scanOnce().then(() => {
+    w.stop();
+    liveSwitch.on = true;
+    const log = new LiveLog();
+    log.setEnabled(true);
+    for (const e of events) if (e.live) log.ingest(e);
+    const entries = log.snapshot();
+    log.setEnabled(false);
+    fs.rmSync(home, { recursive: true, force: true });
+    assert.deepEqual(entries.map((e) => [e.kind, e.title, e.status]), [
+      ['cmd', 'npm run lint', 'ok'],
+      ['diff', '…/app/src/PedidoDialog.tsx', 'ok'],
+      ['diff', '…/app/src/novo.ts', 'ok']
+    ]);
+    assert.deepEqual(entries[0].lines, ['✔ sem problemas']);
+    assert.ok(entries[1].lines.includes('-const x = 1;') && entries[1].lines.includes('+const x = 2;'));
+  });
+});
+
+test('Claude: Bash em segundo plano + BashOutput vira uma entrada só', () => {
+  const ids = { sessionId: 's9', agentId: 'claude:s9' };
+  const p = new ClaudeTranscriptParser(ids);
+  const t = (s) => '2026-09-25T10:00:0' + s + 'Z';
+  const rows = [
+    { type: 'assistant', uuid: 'b1', timestamp: t(0), message: { id: 'm1', role: 'assistant', content: [{ type: 'tool_use', id: 'k1', name: 'Bash', input: { command: 'npm run dev', run_in_background: true } }] } },
+    { type: 'user', uuid: 'b2', timestamp: t(1), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'k1', content: 'Command running in background with ID: bash_3' }] } },
+    { type: 'assistant', uuid: 'b3', timestamp: t(2), message: { id: 'm2', role: 'assistant', content: [{ type: 'tool_use', id: 'k2', name: 'BashOutput', input: { bash_id: 'bash_3' } }] } },
+    { type: 'user', uuid: 'b4', timestamp: t(3), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'k2', content: '<status>running</status>\n\n<stdout>\nready on :3000\n</stdout>' }] } },
+    { type: 'assistant', uuid: 'b5', timestamp: t(4), message: { id: 'm3', role: 'assistant', content: [{ type: 'tool_use', id: 'k3', name: 'BashOutput', input: { bash_id: 'bash_3' } }] } },
+    { type: 'user', uuid: 'b6', timestamp: t(5), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'k3', content: '<status>completed</status>\n<exit_code>0</exit_code>\n<stdout>\nbye\n</stdout>' }] } }
+  ];
+  const entries = runLive((r) => { liveSwitch.on = true; return p.parse(r, false); }, rows);
+  liveSwitch.on = false;
+  assert.equal(entries.length, 1);
+  assert.equal(entries[0].title, 'npm run dev');
+  assert.equal(entries[0].status, 'ok');
+  assert.deepEqual(entries[0].lines, ['ready on :3000', 'bye']);
+});
